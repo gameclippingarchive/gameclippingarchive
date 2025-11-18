@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://tgnqbayejloephsdqxae.supabase.co https://*.supabase.co; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self';">
+    <title>GameClippingArchive</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="grid-bg"></div>
+    
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="terminal-icon">
+                        <span class="pulse"></span>
+                    </div>
+                    <div>
+                        <h1>[GameClippingArchive]</h1>
+                        <p class="subtitle">SECURE_FILE_REPOSITORY_v2.1</p>
+                    </div>
+                </div>
+                <div class="auth-buttons">
+                    <button id="loginBtn" class="btn-primary">[LOGIN]</button>
+                    <button id="uploadBtn" class="btn-primary" style="display:none;">[UPLOAD]</button>
+                    <button id="logoutBtn" class="btn-outline" style="display:none;">EXIT</button>
+                </div>
+            </div>
+
+            <div class="search-container">
+                <div class="search-box">
+                    <span class="search-label">QUERY:</span>
+                    <input type="text" id="searchInput" placeholder="search_database...">
+                </div>
+                <div class="filters">
+                    <span class="filter-label">FILTER:</span>
+                    <button class="filter-btn active" data-type="all">[ALL_FILES]</button>
+                    <button class="filter-btn" data-type="video">[VIDEO]</button>
+                    <button class="filter-btn" data-type="audio">[AUDIO]</button>
+                    <button class="filter-btn" data-type="image">[IMAGE]</button>
+                    <button class="filter-btn" data-type="document">[DOCUMENT]</button>
+                    <button class="filter-btn" data-type="other">[OTHER]</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>[LOADING_DATABASE_ENTRIES...]</p>
+        </div>
+        <div id="contentGrid" class="content-grid"></div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+            <div class="empty-icon">▣</div>
+            <h3>[DATABASE_EMPTY]</h3>
+            <p>> Be the first to upload content</p>
+        </div>
+    </main>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>[LOGIN_PROTOCOL]</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>USERNAME:</label>
+                    <input type="text" id="loginUsername" required>
+                </div>
+                <div class="form-group">
+                    <label>PASSWORD:</label>
+                    <input type="password" id="loginPassword" required>
+                </div>
+                <div id="loginError" class="error-msg"></div>
+                <button type="submit" class="btn-primary full-width">[ACCESS_SYSTEM]</button>
+            </form>
+            <div class="modal-footer">
+                <button id="showSignupBtn">> Need an account? [CREATE_ONE]</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signup Modal -->
+    <div id="signupModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>[CREATE_ACCOUNT]</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="signupForm">
+                <div class="form-group">
+                    <label>USERNAME:</label>
+                    <input type="text" id="signupUsername" required minlength="3">
+                </div>
+                <div class="form-group">
+                    <label>DISPLAY_NAME:</label>
+                    <input type="text" id="signupDisplayName" placeholder="optional">
+                </div>
+                <div class="form-group">
+                    <label>PASSWORD:</label>
+                    <input type="password" id="signupPassword" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label>CONFIRM_PASSWORD:</label>
+                    <input type="password" id="signupConfirmPassword" required>
+                </div>
+                <div id="signupError" class="error-msg"></div>
+                <button type="submit" class="btn-primary full-width">[CREATE_ACCOUNT]</button>
+            </form>
+            <div class="modal-footer">
+                <button id="showLoginBtn">> Have an account? [LOGIN_HERE]</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2>[FILE_UPLOAD_PROTOCOL]</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="uploadForm">
+                <div class="file-upload-box">
+                    <input type="file" id="fileInput" required hidden>
+                    <label for="fileInput" class="file-label">
+                        <div class="upload-icon">↑</div>
+                        <p id="fileLabel">[CLICK_TO_SELECT_FILE]</p>
+                        <small>NO_SIZE_LIMIT :: ALL_TYPES_SUPPORTED</small>
+                    </label>
+                </div>
+                <div id="fileInfo" class="file-info" style="display:none;"></div>
+                <div class="form-group">
+                    <label>TITLE: *</label>
+                    <input type="text" id="uploadTitle" required>
+                </div>
+                <div class="form-group">
+                    <label>DESCRIPTION:</label>
+                    <textarea id="uploadDescription" rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>TAGS:</label>
+                    <input type="text" id="uploadTags" placeholder="tag1, tag2, tag3...">
+                    <small>> Separate tags with commas</small>
+                </div>
+                <div id="uploadProgress" class="upload-progress" style="display:none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <p class="progress-text">[UPLOADING...] 0%</p>
+                </div>
+                <div id="uploadError" class="error-msg"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-outline cancel-btn">[CANCEL]</button>
+                    <button type="submit" class="btn-primary">[EXECUTE_UPLOAD]</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View Modal -->
+    <div id="viewModal" class="modal">
+        <div class="modal-content xlarge">
+            <div class="modal-header">
+                <h2 id="viewTitle"></h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div id="viewContent" class="view-content"></div>
+            <div id="viewDescription" class="view-description"></div>
+            <div class="modal-footer">
+                <div id="viewMeta" class="view-meta"></div>
+                <button id="downloadBtn" class="btn-primary">[DOWNLOAD]</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+</body>
+</html>
