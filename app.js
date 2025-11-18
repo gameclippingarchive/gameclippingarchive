@@ -331,58 +331,36 @@ async function handleUpload(e) {
     });
   
     try {
-        // Generate file name
         const fileExt = selectedFile.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
       
-        // Create resumable upload session
-        const res = await fetch(`${SUPABASE_URL}/storage/v1/upload/resumable`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                bucket_id: 'files',
-                path: fileName,
-                upsert: false,
-            }),
-        });
-      
-        if (!res.ok) {
-            throw new Error(`Failed to create resumable session: ${res.statusText}`);
-        }
-      
-        const { session } = await res.json();
-        if (!session) {
-            throw new Error('No session URL received');
-        }
-      
-        // Use tus for resumable upload
-        const upload = new tus.Upload(selectedFile, {
-            endpoint: session,
-            chunkSize: 50 * 1024 * 1024, // 50MB chunks for faster upload on good connections
-            retryDelays: [0, 1000, 3000, 5000],
-            metadata: {
-                filename: selectedFile.name,
-                contentType: selectedFile.type || 'application/octet-stream',
-            },
-            onError: function (error) {
-                throw error;
-            },
-            onProgress: function (bytesUploaded, bytesTotal) {
-                const percent = (bytesUploaded / bytesTotal) * 90; // Up to 90% for upload
-                progressFill.style.width = `${percent}%`;
-                progressText.textContent = `[UPLOADING...] ${Math.floor(percent)}%`;
-            },
-            onSuccess: function () {
-                // Success handled below
-            }
-        });
-      
         await new Promise((resolve, reject) => {
-            upload.options.onSuccess = resolve;
-            upload.options.onError = reject;
+            const upload = new tus.Upload(selectedFile, {
+                endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                    'x-upsert': 'false'
+                },
+                uploadDataDuringCreation: true,
+                metadata: {
+                    bucketName: 'files',
+                    objectName: fileName,
+                    contentType: selectedFile.type || 'application/octet-stream',
+                    cacheControl: '3600'
+                },
+                chunkSize: 6 * 1024 * 1024,
+                onError: (error) => {
+                    reject(error);
+                },
+                onProgress: (bytesUploaded, bytesTotal) => {
+                    const percentage = (bytesUploaded / bytesTotal * 90).toFixed(2);
+                    progressFill.style.width = `${percentage}%`;
+                    progressText.textContent = `[UPLOADING...] ${percentage}%`;
+                },
+                onSuccess: () => {
+                    resolve();
+                }
+            });
             upload.start();
         });
       
