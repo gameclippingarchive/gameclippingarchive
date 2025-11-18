@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuth();
     loadContent();
     setupEventListeners();
+    setupDragDrop(); // NEW: Setup drag and drop
     polishUI();
 });
 
@@ -87,6 +88,11 @@ function polishUI() {
             margin-top: 5px;
             padding: 5px;
             border: 1px solid rgba(0,255,0,0.3);
+        }
+        /* NEW: Drag-and-drop styles for feedback */
+        #fileDropArea.dragover {
+            border: 2px dashed #00ff00;
+            background-color: #003300;
         }
     `;
     document.head.appendChild(style);
@@ -154,7 +160,7 @@ async function compressImage(file, config = COMPRESSION_CONFIG) {
     });
 }
 
-// Auth
+// Auth (omitted for brevity, assume original logic here)
 function initAuth() {
     const session = localStorage.getItem('gca_session');
     if (session) {
@@ -219,6 +225,7 @@ function setupEventListeners() {
         });
     });
  
+    // Existing file input listener
     document.getElementById('fileInput').addEventListener('change', handleFileSelect);
  
     document.querySelectorAll('.modal').forEach(modal => {
@@ -228,7 +235,66 @@ function setupEventListeners() {
     });
 }
 
-// Modal Management
+// NEW: Setup Drag and Drop listeners
+function setupDragDrop() {
+    const dropArea = document.getElementById('fileDropArea');
+    if (!dropArea) return;
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, preventDefaults, false);
+    });
+
+    // Highlight drop area when item is dragged over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropArea.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, unhighlight, false);
+    });
+
+    // Handle dropped files
+    dropArea.addEventListener('drop', handleDrop, false);
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function highlight(e) {
+        dropArea.classList.add('dragover');
+    }
+
+    function unhighlight(e) {
+        dropArea.classList.remove('dragover');
+    }
+}
+
+// NEW: Handle dropped files
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+
+    if (files.length > 0) {
+        // Set the files on the actual file input element
+        const fileInput = document.getElementById('fileInput');
+        fileInput.files = files; 
+        
+        // Trigger the change event to run the existing handleFileSelect logic
+        // This is the cleanest way to "paste" the file without re-writing logic.
+        const changeEvent = new Event('change');
+        fileInput.dispatchEvent(changeEvent);
+
+        // NOTE: If you don't want to use the file input's change event:
+        // You could directly call handleFileSelect with a mock event object:
+        // handleFileSelect({ target: { files: files } }); 
+        // But using the input element is generally better practice.
+    }
+}
+
+
+// Modal Management (omitted for brevity, assume original logic here)
 function showModal(modalId) {
     document.getElementById(modalId).classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -237,7 +303,7 @@ function showModal(modalId) {
 function hideModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
     document.body.style.overflow = 'auto';
- 
+
     if (modalId === 'loginModal') {
         document.getElementById('loginForm').reset();
         document.getElementById('loginError').classList.remove('active');
@@ -273,43 +339,43 @@ function hideError(elementId) {
     document.getElementById(elementId).classList.remove('active');
 }
 
-// Login
+// Login (omitted for brevity, assume original logic here)
 async function handleLogin(e) {
     e.preventDefault();
     hideError('loginError');
- 
+
     const username = document.getElementById('loginUsername').value.trim();
     const password = document.getElementById('loginPassword').value;
- 
+
     try {
         const { data, error } = await supabase
             .from('accounts')
             .select('*')
             .eq('username', username)
             .maybeSingle();
-     
+      
         if (error) {
             console.error('Login query error:', error);
             showError('loginError', 'Login failed. Please try again.');
             return;
         }
-     
+      
         if (!data) {
             showError('loginError', 'Username not found');
             return;
         }
-     
+      
         if (data.password !== password) {
             showError('loginError', 'Invalid password');
             return;
         }
-     
+      
         currentUser = {
             id: data.id,
             username: data.username,
             display_name: data.display_name
         };
-     
+      
         localStorage.setItem('gca_session', JSON.stringify(currentUser));
         updateAuthUI();
         hideModal('loginModal');
@@ -320,31 +386,31 @@ async function handleLogin(e) {
     }
 }
 
-// Signup
+// Signup (omitted for brevity, assume original logic here)
 async function handleSignup(e) {
     e.preventDefault();
     hideError('signupError');
- 
+
     const username = document.getElementById('signupUsername').value.trim();
     const password = document.getElementById('signupPassword').value;
     const confirmPassword = document.getElementById('signupConfirmPassword').value;
     const displayName = document.getElementById('signupDisplayName').value.trim() || username;
- 
+
     if (username.length < 3) {
         showError('signupError', 'Username must be at least 3 characters');
         return;
     }
- 
+
     if (password.length < 6) {
         showError('signupError', 'Password must be at least 6 characters');
         return;
     }
- 
+
     if (password !== confirmPassword) {
         showError('signupError', 'Passwords do not match');
         return;
     }
- 
+
     try {
         const { data, error } = await supabase
             .from('accounts')
@@ -355,7 +421,7 @@ async function handleSignup(e) {
             }])
             .select()
             .single();
-     
+      
         if (error) {
             if (error.code === '23505' || error.message.includes('duplicate') || error.message.includes('unique')) {
                 showError('signupError', 'Username already taken');
@@ -366,13 +432,13 @@ async function handleSignup(e) {
             }
             return;
         }
-     
+      
         currentUser = {
             id: data.id,
             username: data.username,
             display_name: data.display_name
         };
-     
+      
         localStorage.setItem('gca_session', JSON.stringify(currentUser));
         updateAuthUI();
         hideModal('signupModal');
@@ -383,7 +449,7 @@ async function handleSignup(e) {
     }
 }
 
-// Logout
+// Logout (omitted for brevity, assume original logic here)
 function logout() {
     localStorage.removeItem('gca_session');
     currentUser = null;
@@ -393,6 +459,7 @@ function logout() {
 
 // File Selection with Compression Preview
 async function handleFileSelect(e) {
+    // This function handles files whether from the button or a drop
     selectedFile = e.target.files[0];
     compressedFile = null;
     
@@ -400,7 +467,7 @@ async function handleFileSelect(e) {
         const fileLabel = document.querySelector('.file-label');
         fileLabel.classList.add('has-file');
         document.getElementById('fileLabel').textContent = '[FILE_LOADED]';
-     
+    
         const fileType = detectFileType(selectedFile);
         let infoHTML = `
             <p><strong>${selectedFile.name}</strong></p>
@@ -432,7 +499,7 @@ async function handleFileSelect(e) {
         
         document.getElementById('fileInfo').innerHTML = infoHTML;
         document.getElementById('fileInfo').style.display = 'block';
-     
+    
         // Auto-fill title
         if (!document.getElementById('uploadTitle').value) {
             document.getElementById('uploadTitle').value = selectedFile.name.replace(/\.[^/.]+$/, '');
@@ -443,7 +510,7 @@ async function handleFileSelect(e) {
 function detectFileType(file) {
     const type = file.type;
     const name = file.name.toLowerCase();
- 
+
     if (type.startsWith('image/')) return 'image';
     if (type.startsWith('video/')) return 'video';
     if (type.startsWith('audio/') || name.match(/\.(mp3|wav|ogg|m4a|flac|aac)$/)) return 'audio';
@@ -451,37 +518,37 @@ function detectFileType(file) {
     return 'other';
 }
 
-// Upload with Compression
+// Upload with Compression (omitted for brevity, assume original logic here)
 async function handleUpload(e) {
     e.preventDefault();
     hideError('uploadError');
- 
+
     if (!currentUser) {
         showError('uploadError', 'You must be logged in to upload');
         return;
     }
- 
+
     if (!selectedFile) {
         showError('uploadError', 'Please select a file');
         return;
     }
- 
+
     const title = document.getElementById('uploadTitle').value.trim();
     const description = document.getElementById('uploadDescription').value.trim();
     const tagsInput = document.getElementById('uploadTags').value.trim();
     const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
- 
+
     const progressContainer = document.getElementById('uploadProgress');
     const progressFill = document.querySelector('.progress-fill');
     const progressText = document.querySelector('.progress-text');
     progressContainer.style.display = 'block';
     progressFill.style.width = '0%';
     progressText.textContent = '[UPLOADING...] 0%';
- 
+
     document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
         el.disabled = true;
     });
- 
+
     try {
         // Use compressed file for images, original for others
         const fileToUpload = compressedFile || selectedFile;
@@ -500,12 +567,12 @@ async function handleUpload(e) {
         
         progressFill.style.width = '90%';
         progressText.textContent = '[UPLOADING...] 90%';
-     
+      
         // Get public URL
         const { data: urlData } = supabase.storage
             .from('files')
             .getPublicUrl(fileName);
-     
+      
         // Create database entry
         const { error: dbError } = await supabase
             .from('content')
@@ -520,43 +587,43 @@ async function handleUpload(e) {
                 view_count: 0,
                 tags
             }]);
-     
+      
         if (dbError) throw dbError;
-     
+      
         progressFill.style.width = '100%';
         progressText.textContent = '[UPLOAD_COMPLETE] 100%';
-     
+      
         setTimeout(() => {
             hideModal('uploadModal');
             loadContent();
         }, 500);
-     
+      
     } catch (err) {
         console.error('Upload error:', err);
         showError('uploadError', 'Upload failed: ' + err.message);
         progressContainer.style.display = 'none';
-     
+      
         document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
             el.disabled = false;
         });
     }
 }
 
-// Load Content
+// Load Content (omitted for brevity, assume original logic here)
 async function loadContent() {
     document.getElementById('loading').style.display = 'block';
     document.getElementById('contentGrid').innerHTML = '';
     document.getElementById('emptyState').style.display = 'none';
- 
+
     try {
         const { data, error } = await supabase
             .from('content')
             .select('*')
             .order('created_at', { ascending: false })
             .limit(200);
-     
+      
         if (error) throw error;
-     
+      
         allContent = data || [];
         filterContent();
     } catch (err) {
@@ -566,44 +633,44 @@ async function loadContent() {
     }
 }
 
-// Filter Content
+// Filter Content (omitted for brevity, assume original logic here)
 function filterContent() {
     const searchQuery = document.getElementById('searchInput').value.toLowerCase();
- 
+
     let filtered = allContent.filter(content => {
         const matchesSearch = !searchQuery ||
             content.title?.toLowerCase().includes(searchQuery) ||
             content.description?.toLowerCase().includes(searchQuery) ||
             content.uploader_name?.toLowerCase().includes(searchQuery) ||
             content.tags?.some(tag => tag.toLowerCase().includes(searchQuery));
-     
+      
         const matchesType = currentFilter === 'all' || content.file_type === currentFilter;
-     
+      
         return matchesSearch && matchesType;
     });
- 
+
     displayContent(filtered);
 }
 
-// Display Content
+// Display Content (omitted for brevity, assume original logic here)
 function displayContent(content) {
     document.getElementById('loading').style.display = 'none';
     const grid = document.getElementById('contentGrid');
     const emptyState = document.getElementById('emptyState');
- 
+
     if (content.length === 0) {
         grid.innerHTML = '';
         emptyState.style.display = 'block';
         return;
     }
- 
+
     emptyState.style.display = 'none';
     grid.innerHTML = content.map(item => createContentCard(item)).join('');
- 
+
     document.querySelectorAll('.view-btn').forEach(btn => {
         btn.addEventListener('click', () => viewContent(btn.dataset.id));
     });
- 
+
     document.querySelectorAll('.download-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const url = btn.dataset.url;
@@ -611,13 +678,13 @@ function displayContent(content) {
             await downloadFile(url, fileName);
         });
     });
- 
+
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', () => deleteContent(btn.dataset.id));
     });
 }
 
-// Create Content Card
+// Create Content Card (omitted for brevity, assume original logic here)
 function createContentCard(content) {
     const isOwner = currentUser && (
         currentUser.username === 'Zaid' ||
@@ -625,13 +692,13 @@ function createContentCard(content) {
         content.uploader_name === currentUser.username ||
         content.uploader_id === currentUser.id
     );
- 
+
     const preview = getPreviewHTML(content);
     const tags = content.tags?.slice(0, 3).map(tag => `<span class="tag">#${tag}</span>`).join('') || '';
     const moreTagsLabel = content.tags?.length > 3 ? `<span class="tag">+${content.tags.length - 3}</span>` : '';
     const formattedDate = new Date(content.created_at).toLocaleDateString();
     const fileSize = formatFileSize(content.file_size);
- 
+
     return `
         <div class="content-card">
             ${preview}
@@ -663,7 +730,7 @@ function getPreviewHTML(content) {
         content.uploader_name === currentUser.username ||
         content.uploader_id === currentUser.id
     ) ? '<div class="card-owner-badge">[YOUR_FILE]</div>' : '';
- 
+
     if (content.file_type === 'image') {
         return `
             <div class="card-preview">
@@ -673,7 +740,7 @@ function getPreviewHTML(content) {
             </div>
         `;
     }
- 
+
     return `
         <div class="card-preview" style="display:flex;align-items:center;justify-content:center;">
             <div style="font-size:3rem;color:rgba(0,255,65,0.6);">${getFileIcon(content.file_type)}</div>
@@ -718,21 +785,21 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// View Content
+// View Content (omitted for brevity, assume original logic here)
 async function viewContent(id) {
     const content = allContent.find(c => c.id === id);
     if (!content) return;
- 
+
     const newViewCount = (content.view_count || 0) + 1;
     await supabase
         .from('content')
         .update({ view_count: newViewCount })
         .eq('id', id);
- 
+
     content.view_count = newViewCount;
- 
+
     document.getElementById('viewTitle').textContent = '> ' + content.title;
- 
+
     const viewContent = document.getElementById('viewContent');
     if (content.file_type === 'video') {
         viewContent.innerHTML = `<video controls autoplay src="${content.file_url}" style="width:100%;height:80vh;background:#000;object-fit:contain;"></video>`;
@@ -752,7 +819,7 @@ async function viewContent(id) {
             </div>
         `;
     }
- 
+
     const viewDescription = document.getElementById('viewDescription');
     if (content.description) {
         viewDescription.innerHTML = `<p>> ${escapeHtml(content.description)}</p>`;
@@ -760,40 +827,40 @@ async function viewContent(id) {
     } else {
         viewDescription.style.display = 'none';
     }
- 
+
     document.getElementById('viewMeta').innerHTML = `
         <span>UPLOADER: ${escapeHtml(content.uploader_name)}</span>
         <span>|</span>
         <span>VIEWS: ${content.view_count}</span>
     `;
- 
+
     const downloadBtn = document.getElementById('downloadBtn');
     if (downloadBtn) {
         downloadBtn.style.display = 'none';
     }
- 
+
     showModal('viewModal');
     filterContent();
 }
 
-// Delete Content
+// Delete Content (omitted for brevity, assume original logic here)
 async function deleteContent(id) {
     if (!window.confirm('[CONFIRM_DELETE?] This action cannot be undone.')) return;
- 
+
     const content = allContent.find(c => c.id === id);
     if (!content) return;
- 
+
     try {
         const { error: dbError } = await supabase
             .from('content')
             .delete()
             .eq('id', id);
-     
+      
         if (dbError) throw dbError;
-     
+      
         const fileName = content.file_url.split('/').pop();
         await supabase.storage.from('files').remove([fileName]);
-     
+      
         loadContent();
     } catch (err) {
         console.error('Delete error:', err);
@@ -801,7 +868,7 @@ async function deleteContent(id) {
     }
 }
 
-// Force Download
+// Force Download (omitted for brevity, assume original logic here)
 async function downloadFile(url, fileName) {
     try {
         const response = await fetch(url);
