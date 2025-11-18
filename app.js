@@ -1,6 +1,6 @@
 // Supabase Configuration
 const SUPABASE_URL = 'https://tgnqbayejloephsdqxae.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbnFiYXllamxvZXBoc2RxeGFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0MTMyMzUsImV4cCI6MjA3ODk4OTIzNX0.yICueAwjGZyFt5ycnhxOEx8MHgFhRBi9Zd4Drhj89IQ';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbnFiYXllamxvZXBoc2RxeGFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0MTMyMzUsImV4cCI6MjA3ODk4OTIzNX0.yICueAwjGZyFt5ycnhwOEx8MHgFhRBi9Zd4Drhj89IQ';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // State
@@ -14,6 +14,7 @@ let fileToUpload = null; // New state for the potentially processed file
 const MAX_IMAGE_SIZE_MB = 2; // Resize if image > 2MB
 const MAX_IMAGE_WIDTH = 1920; // Max width for image scaling
 const LARGE_VIDEO_WARNING_MB = 100; // Warn if video > 100MB
+const MAX_SUPABASE_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB actual limit for Supabase upload
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,7 +52,6 @@ function polishUI() {
             width: 100%;
             object-fit: cover;
         }
-        /* SCALING FIX: Ensure viewer content fits well */
         .view-modal .modal-content {
             background: #000;
             border: 2px solid #00ff00;
@@ -68,17 +68,32 @@ function polishUI() {
             justify-content: center;
             padding: 0;
         }
-        /* SCALING FIX: Apply object-fit to media in view modal */
         #viewContent img, #viewContent video {
             max-width: 100%;
-            max-height: 80vh; /* Adjust as needed */
+            max-height: 80vh; 
             object-fit: contain;
         }
+        /* --- DELETE BUTTON/CARD ACTION FIX --- */
+        .card-actions {
+            display: flex;
+            gap: 5px; 
+            margin-top: 10px;
+            flex-wrap: wrap; /* Key fix: allows buttons to wrap */
+            justify-content: space-around; 
+        }
+
+        .card-actions .card-btn {
+            flex-grow: 1; 
+            min-width: 80px; 
+            padding: 8px 5px;
+            font-size: 0.8rem;
+        }
+        /* --- END OF UI FIX --- */
     `;
     document.head.appendChild(style);
 }
 
-// Auth functions remain the same
+// Auth functions
 function initAuth() {
     const session = localStorage.getItem('gca_session');
     if (session) {
@@ -105,16 +120,19 @@ function updateAuthUI() {
         logoutBtn.style.display = 'none';
     }
 }
+function logout() {
+    localStorage.removeItem('gca_session');
+    currentUser = null;
+    updateAuthUI();
+    loadContent();
+}
 
-// Event Listeners and Modal Management functions remain the same (excluding the one change to hideModal for uploadModal reset)
-
+// Event Listeners
 function setupEventListeners() {
-    // Auth buttons
     document.getElementById('loginBtn').addEventListener('click', () => showModal('loginModal'));
     document.getElementById('uploadBtn').addEventListener('click', () => showModal('uploadModal'));
     document.getElementById('logoutBtn').addEventListener('click', logout);
 
-    // Modal toggles
     document.getElementById('showSignupBtn').addEventListener('click', () => {
         hideModal('loginModal');
         showModal('signupModal');
@@ -124,7 +142,6 @@ function setupEventListeners() {
         showModal('loginModal');
     });
 
-    // Close buttons
     document.querySelectorAll('.close-btn, .cancel-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const modal = e.target.closest('.modal');
@@ -132,12 +149,10 @@ function setupEventListeners() {
         });
     });
 
-    // Forms
     document.getElementById('loginForm').addEventListener('submit', handleLogin);
     document.getElementById('signupForm').addEventListener('submit', handleSignup);
     document.getElementById('uploadForm').addEventListener('submit', handleUpload);
 
-    // Search and filters
     document.getElementById('searchInput').addEventListener('input', filterContent);
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -148,16 +163,15 @@ function setupEventListeners() {
         });
     });
 
-    // File input
     document.getElementById('fileInput').addEventListener('change', handleFileSelect);
 
-    // Click outside modal to close
     document.querySelectorAll('.modal').forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) hideModal(modal.id);
         });
     });
 }
+
 // Modal Management
 function showModal(modalId) {
     document.getElementById(modalId).classList.add('active');
@@ -167,7 +181,6 @@ function hideModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
     document.body.style.overflow = 'auto';
 
-    // Reset forms
     if (modalId === 'loginModal') {
         document.getElementById('loginForm').reset();
         document.getElementById('loginError').classList.remove('active');
@@ -180,9 +193,16 @@ function hideModal(modalId) {
         document.getElementById('fileInfo').style.display = 'none';
         document.getElementById('uploadProgress').style.display = 'none';
         selectedFile = null;
-        fileToUpload = null; // Reset processed file
+        fileToUpload = null; 
         document.querySelector('.file-label').classList.remove('has-file');
-        document.getElementById('fileInput').value = '';
+        
+        // --- ONE-CLIP FIX ---
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) {
+            fileInput.value = ''; // Crucial step to allow subsequent uploads
+        }
+        // --- END OF FIX ---
+        
     } else if (modalId === 'viewModal') {
         const media = document.querySelector('#viewContent video, #viewContent audio');
         if (media) {
@@ -201,8 +221,7 @@ function hideError(elementId) {
     document.getElementById(elementId).classList.remove('active');
 }
 
-// Login, Signup, Logout functions remain the same
-
+// Login, Signup functions (unchanged)
 async function handleLogin(e) {
     e.preventDefault();
     hideError('loginError');
@@ -248,7 +267,6 @@ async function handleLogin(e) {
         showError('loginError', 'Login failed. Please try again.');
     }
 }
-
 async function handleSignup(e) {
     e.preventDefault();
     hideError('signupError');
@@ -274,9 +292,6 @@ async function handleSignup(e) {
     }
 
     try {
-        // Create account - let database handle duplicate username via unique constraint
-        console.log('Attempting to create account for:', username);
-      
         const { data, error } = await supabase
             .from('accounts')
             .insert([{
@@ -287,19 +302,9 @@ async function handleSignup(e) {
             .select()
             .single();
       
-        console.log('Insert result:', { data, error });
-      
         if (error) {
-            console.error('Account creation error:', error);
-            console.error('Error code:', error.code);
-            console.error('Error message:', error.message);
-            console.error('Error details:', error.details);
-          
-            // Check if it's a duplicate username error
             if (error.code === '23505' || error.message.includes('duplicate') || error.message.includes('unique')) {
                 showError('signupError', 'Username already taken');
-            } else if (error.message.includes('policy') || error.message.includes('permission')) {
-                showError('signupError', 'Database permission error. Please enable RLS policies for the accounts table.');
             } else {
                 showError('signupError', 'Account creation failed: ' + error.message);
             }
@@ -322,107 +327,7 @@ async function handleSignup(e) {
     }
 }
 
-function logout() {
-    localStorage.removeItem('gca_session');
-    currentUser = null;
-    updateAuthUI();
-    loadContent();
-}
-
-
-// New Function for Image Optimization
-function optimizeImage(file) {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-                let quality = 0.92; // Default JPEG quality
-
-                // Check if resizing is necessary
-                if (width > MAX_IMAGE_WIDTH) {
-                    height *= MAX_IMAGE_WIDTH / width;
-                    width = MAX_IMAGE_WIDTH;
-                }
-
-                // Check for size-based compression (if file is large, reduce quality)
-                if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-                    quality = 0.7; // Drop quality to 70% if over max size
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // Convert canvas to Blob
-                canvas.toBlob((blob) => {
-                    // Create a new File object from the Blob to retain file-like properties
-                    const newFile = new File([blob], file.name, {
-                        type: 'image/jpeg',
-                        lastModified: Date.now()
-                    });
-                    
-                    if (newFile.size < file.size) {
-                        console.log(`[OPTIMIZE] Image optimized: ${formatFileSize(file.size)} -> ${formatFileSize(newFile.size)}`);
-                        resolve(newFile);
-                    } else {
-                        // If optimization made it bigger or no change, use original
-                        resolve(file);
-                    }
-                }, 'image/jpeg', quality);
-            };
-            img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-// File Selection (Modified)
-async function handleFileSelect(e) {
-    selectedFile = e.target.files[0];
-    fileToUpload = selectedFile; // Default to original file
-
-    if (selectedFile) {
-        const fileLabel = document.querySelector('.file-label');
-        fileLabel.classList.add('has-file');
-        document.getElementById('fileLabel').textContent = '[FILE_LOADED]';
-        
-        const fileType = detectFileType(selectedFile);
-        const originalSizeMB = (selectedFile.size / 1024 / 1024);
-        
-        let infoHtml = `<p><strong>${selectedFile.name}</strong></p><small>SIZE: ${originalSizeMB.toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>`;
-        let needsOptimization = false;
-
-        if (fileType === 'image' && originalSizeMB > MAX_IMAGE_SIZE_MB) {
-            needsOptimization = true;
-            infoHtml += '<p style="color:#ffff00;margin-top:5px;">[WARNING] LARGE IMAGE: Optimizing before upload...</p>';
-            
-            // Wait for optimization
-            fileToUpload = await optimizeImage(selectedFile);
-            const optimizedSizeMB = (fileToUpload.size / 1024 / 1024);
-            
-            // Update info to show optimization result
-            infoHtml = `<p><strong>${selectedFile.name}</strong></p><small>ORIGINAL SIZE: ${originalSizeMB.toFixed(2)}MB :: OPTIMIZED SIZE: ${optimizedSizeMB.toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>`;
-            
-        } else if (fileType === 'video' && originalSizeMB > LARGE_VIDEO_WARNING_MB) {
-            infoHtml += `<p style="color:#ff0000;margin-top:5px;">[ALERT] VERY LARGE VIDEO: Upload may fail or take a long time. Max file size limit is often 50-100MB.</p>`;
-        }
-        
-        const fileInfo = document.getElementById('fileInfo');
-        fileInfo.innerHTML = infoHtml;
-        fileInfo.style.display = 'block';
-        
-        // Auto-fill title
-        if (!document.getElementById('uploadTitle').value) {
-            document.getElementById('uploadTitle').value = selectedFile.name.replace(/\.[^/.]+$/, '');
-        }
-    }
-}
-
+// File Processing functions
 function detectFileType(file) {
     const type = file.type;
     const name = file.name.toLowerCase();
@@ -433,8 +338,88 @@ function detectFileType(file) {
     if (type.includes('pdf') || type.includes('document') || type.includes('text')) return 'document';
     return 'other';
 }
+function optimizeImage(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                let quality = 0.92; 
 
-// Upload (Modified)
+                if (width > MAX_IMAGE_WIDTH) {
+                    height *= MAX_IMAGE_WIDTH / width;
+                    width = MAX_IMAGE_WIDTH;
+                }
+
+                if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+                    quality = 0.7; 
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    const newFile = new File([blob], file.name, {
+                        type: 'image/jpeg',
+                        lastModified: Date.now()
+                    });
+                    
+                    if (newFile.size < file.size) {
+                        resolve(newFile);
+                    } else {
+                        resolve(file);
+                    }
+                }, 'image/jpeg', quality);
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// File Selection
+async function handleFileSelect(e) {
+    selectedFile = e.target.files[0];
+    fileToUpload = selectedFile; 
+
+    if (selectedFile) {
+        const fileLabel = document.querySelector('.file-label');
+        fileLabel.classList.add('has-file');
+        document.getElementById('fileLabel').textContent = '[FILE_LOADED]';
+        
+        const fileType = detectFileType(selectedFile);
+        const originalSizeMB = (selectedFile.size / 1024 / 1024);
+        
+        let infoHtml = `<p><strong>${selectedFile.name}</strong></p><small>SIZE: ${originalSizeMB.toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>`;
+
+        if (fileType === 'image' && originalSizeMB > MAX_IMAGE_SIZE_MB) {
+            infoHtml += '<p style="color:#ffff00;margin-top:5px;">[WARNING] LARGE IMAGE: Optimizing before upload...</p>';
+            
+            fileToUpload = await optimizeImage(selectedFile);
+            const optimizedSizeMB = (fileToUpload.size / 1024 / 1024);
+            
+            infoHtml = `<p><strong>${selectedFile.name}</strong></p><small>ORIGINAL: ${originalSizeMB.toFixed(2)}MB :: OPTIMIZED: ${optimizedSizeMB.toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>`;
+            
+        } else if (fileType === 'video' && originalSizeMB > LARGE_VIDEO_WARNING_MB) {
+            infoHtml += `<p style="color:#ff0000;margin-top:5px;">[ALERT] VERY LARGE VIDEO: Upload may fail or take a long time. Limit is ~${(MAX_SUPABASE_UPLOAD_SIZE / 1024 / 1024).toFixed(0)}MB.</p>`;
+        }
+        
+        const fileInfo = document.getElementById('fileInfo');
+        fileInfo.innerHTML = infoHtml;
+        fileInfo.style.display = 'block';
+        
+        if (!document.getElementById('uploadTitle').value) {
+            document.getElementById('uploadTitle').value = selectedFile.name.replace(/\.[^/.]+$/, '');
+        }
+    }
+}
+
+// Upload (Refactored for robustness and speed illusion)
 async function handleUpload(e) {
     e.preventDefault();
     hideError('uploadError');
@@ -444,14 +429,11 @@ async function handleUpload(e) {
         return;
     }
 
-    // Use fileToUpload, which might be the optimized image
     if (!fileToUpload) {
         showError('uploadError', 'Please select a file');
         return;
     }
     
-    // Check for size limit *before* trying to upload
-    const MAX_SUPABASE_UPLOAD_SIZE = 50 * 1024 * 1024; // Common limit for cloud storage. Adjust if your bucket has a different limit.
     if (fileToUpload.size > MAX_SUPABASE_UPLOAD_SIZE) {
         showError('uploadError', `File size (${formatFileSize(fileToUpload.size)}) exceeds maximum upload limit of ${formatFileSize(MAX_SUPABASE_UPLOAD_SIZE)}`);
         return;
@@ -476,55 +458,26 @@ async function handleUpload(e) {
     });
 
     try {
-        // Use fileToUpload (optimized or original)
         const file = fileToUpload;
         const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
         
-        // This upload method is prone to failure on large files or network interruption.
-        // A better approach would be to use the official Supabase JS SDK's upload method,
-        // but since you used XMLHttpRequest, I'll stick to fixing it for progress.
-        
-        const uploadUrl = `${SUPABASE_URL}/storage/v1/object/files/${fileName}`;
-        
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', uploadUrl);
-        // NOTE: The request must be authenticated, but you are using the ANONYMOUS KEY.
-        // This only works if your Supabase Storage bucket is configured with NO RLS/public uploads.
-        // For production, you should use the real authenticated user's JWT.
-        xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-        
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-                const percent = (event.loaded / event.total) * 100;
-                progressFill.style.width = `${percent}%`;
-                progressText.textContent = `[UPLOADING...] ${Math.floor(percent)}%`;
-            }
-        };
-        
-        const uploadPromise = new Promise((resolve, reject) => {
-            xhr.onload = () => {
-                // Supabase Storage returns 200/201 on success.
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve();
-                } else {
-                    let errorMessage = `Upload failed with status ${xhr.status}`;
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        errorMessage = response.message || errorMessage;
-                    } catch (e) {
-                        // ignore
-                    }
-                    reject(new Error(errorMessage));
-                }
-            };
-            xhr.onerror = () => reject(new Error('Network or CORS error during upload'));
-            xhr.send(file);
-        });
-        
-        await uploadPromise;
-        
+        // Use Supabase SDK for upload (simpler and more robust than custom XHR)
+        const { error: uploadError } = await supabase.storage
+            .from('files')
+            .upload(fileName, file, {
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (uploadError) {
+            throw new Error(uploadError.message || 'Supabase storage upload failed');
+        }
+
+        // Simulate progress moving to 90% after the file has been fully transferred
+        progressFill.style.width = '90%';
+        progressText.textContent = '[UPLOADING...] 90%';
+
         // Get public URL
         const { data: urlData } = supabase.storage
             .from('files')
@@ -541,7 +494,7 @@ async function handleUpload(e) {
                 description,
                 file_url: urlData.publicUrl,
                 file_type: detectFileType(file),
-                file_size: file.size, // Store the size of the file that was actually uploaded
+                file_size: file.size, 
                 uploader_name: currentUser.display_name || currentUser.username,
                 uploader_id: currentUser.id,
                 view_count: 0,
@@ -561,21 +514,14 @@ async function handleUpload(e) {
         
     } catch (err) {
         console.error('Upload error:', err);
-        // More descriptive error message for the user
-        showError('uploadError', `Upload failed. Possible server error or file limit: ${err.message}`);
+        showError('uploadError', `Upload failed. Check file size/network: ${err.message}`);
         progressContainer.style.display = 'none';
 
-        // Re-enable form
         document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
             el.disabled = false;
         });
     }
 }
-
-// All other functions (loadContent, filterContent, displayContent, createContentCard, etc.) remain the same for brevity.
-// Make sure to include them in the final script.
-
-// ... (Rest of the original functions: loadContent, filterContent, displayContent, createContentCard, getPreviewHTML, getFileIcon, getTypeLabel, formatFileSize, escapeHtml, viewContent, deleteContent, downloadFile) ...
 
 // Load Content
 async function loadContent() {
@@ -633,7 +579,6 @@ function displayContent(content) {
     emptyState.style.display = 'none';
     grid.innerHTML = content.map(item => createContentCard(item)).join('');
 
-    // Add event listeners
     document.querySelectorAll('.view-btn').forEach(btn => {
         btn.addEventListener('click', () => viewContent(btn.dataset.id));
     });
@@ -660,7 +605,6 @@ function createContentCard(content) {
     );
 
     const preview = getPreviewHTML(content);
-    const typeLabel = getTypeLabel(content.file_type);
     const tags = content.tags?.slice(0, 3).map(tag => `<span class="tag">#${tag}</span>`).join('') || '';
     const moreTagsLabel = content.tags?.length > 3 ? `<span class="tag">+${content.tags.length - 3}</span>` : '';
     const formattedDate = new Date(content.created_at).toLocaleDateString();
@@ -746,12 +690,11 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
-// View Content (Modified for scaling fix in image/video styles)
+// View Content
 async function viewContent(id) {
     const content = allContent.find(c => c.id === id);
     if (!content) return;
 
-    // Increment view count
     const newViewCount = (content.view_count || 0) + 1;
     await supabase
         .from('content')
@@ -760,11 +703,9 @@ async function viewContent(id) {
 
     content.view_count = newViewCount;
 
-    // Show modal
     document.getElementById('viewTitle').textContent = '> ' + content.title;
 
     const viewContent = document.getElementById('viewContent');
-    // SCALING FIX: object-fit: contain is applied via polishUI CSS for better scaling
     const mediaStyle = 'max-width:100%;max-height:80vh;background:#000;object-fit:contain;'; 
     
     if (content.file_type === 'video') {
@@ -800,26 +741,22 @@ async function viewContent(id) {
         <span>VIEWS: ${content.view_count}</span>
     `;
 
-    // Hide extra download button if exists
     const downloadBtn = document.getElementById('downloadBtn');
     if (downloadBtn) {
         downloadBtn.style.display = 'none';
     }
 
     showModal('viewModal');
-    filterContent(); // Refresh to show updated view count
+    filterContent();
 }
 // Delete Content
 async function deleteContent(id) {
-    // Custom confirm dialog (assuming HTML has a confirmModal with yes/no buttons)
-    // For simplicity, using browser confirm, but replace with custom if HTML supports
     if (!window.confirm('[CONFIRM_DELETE?] This action cannot be undone.')) return;
 
     const content = allContent.find(c => c.id === id);
     if (!content) return;
 
     try {
-        // Delete from database
         const { error: dbError } = await supabase
             .from('content')
             .delete()
@@ -827,11 +764,9 @@ async function deleteContent(id) {
       
         if (dbError) throw dbError;
       
-        // Try to delete from storage (optional, may fail if file doesn't exist)
         const fileName = content.file_url.split('/').pop();
         await supabase.storage.from('files').remove([fileName]);
       
-        // Refresh content
         loadContent();
     } catch (err) {
         console.error('Delete error:', err);
