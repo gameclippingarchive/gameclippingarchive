@@ -14,7 +14,47 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuth();
     loadContent();
     setupEventListeners();
+    polishUI();
 });
+
+function polishUI() {
+    // Add global styles for hacker theme and transparent scrolls
+    const style = document.createElement('style');
+    style.textContent = `
+        body, .modal, .content-card {
+            font-family: 'Courier New', monospace;
+            color: #00ff00;
+            background-color: #000;
+        }
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+        .content-card {
+            border: 1px solid #00ff00;
+            padding: 10px;
+            margin: 10px;
+            box-shadow: 0 0 10px #00ff00;
+            min-width: 300px;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+        .card-preview {
+            height: 200px;
+            width: 100%;
+            object-fit: cover;
+        }
+        .view-modal .modal-content {
+            background: #000;
+            border: 2px solid #00ff00;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: hidden;
+        }
+    `;
+    document.head.appendChild(style);
+}
 
 // Auth
 function initAuth() {
@@ -509,7 +549,7 @@ function createContentCard(content) {
     const fileSize = formatFileSize(content.file_size);
   
     return `
-        <div class="content-card">
+        <div class="content-card" style="min-width:300px;min-height:400px;">
             ${preview}
             <div class="card-content">
                 <h3 class="card-title">> ${escapeHtml(content.title)}</h3>
@@ -542,8 +582,8 @@ function getPreviewHTML(content) {
   
     if (content.file_type === 'image') {
         return `
-            <div class="card-preview">
-                <img src="${content.file_url}" alt="${escapeHtml(content.title)}" onerror="this.style.display='none'">
+            <div class="card-preview" style="height:200px;width:100%;object-fit:cover;">
+                <img src="${content.file_url}" alt="${escapeHtml(content.title)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">
                 <div class="card-type-badge">${typeLabel}</div>
                 ${ownerBadge}
             </div>
@@ -551,7 +591,7 @@ function getPreviewHTML(content) {
     }
   
     return `
-        <div class="card-preview" style="display:flex;align-items:center;justify-content:center;">
+        <div class="card-preview" style="height:200px;display:flex;align-items:center;justify-content:center;">
             <div style="font-size:3rem;color:rgba(0,255,65,0.6);">${getFileIcon(content.file_type)}</div>
             <div class="card-type-badge">${typeLabel}</div>
             ${ownerBadge}
@@ -613,22 +653,49 @@ async function viewContent(id) {
   
     const viewContent = document.getElementById('viewContent');
     if (content.file_type === 'video') {
-        viewContent.innerHTML = `<video controls autoplay src="${content.file_url}" style="width:100%;max-height:70vh;background:#000;"></video>`;
+        viewContent.innerHTML = `<video controls autoplay src="${content.file_url}" style="width:100%;height:80vh;background:#000;object-fit:contain;"></video>`;
     } else if (content.file_type === 'image') {
-        viewContent.innerHTML = `<img src="${content.file_url}" alt="${escapeHtml(content.title)}" style="width:100%;max-height:70vh;object-fit:contain;background:#000;">`;
+        viewContent.innerHTML = `<img src="${content.file_url}" alt="${escapeHtml(content.title)}" style="width:100%;height:80vh;object-fit:contain;background:#000;">`;
     } else if (content.file_type === 'audio') {
         viewContent.innerHTML = `
-            <div style="padding:2rem;background:#000;border:2px solid rgba(0,255,65,0.3);text-align:center;">
+            <div style="padding:2rem;background:#000;border:2px solid rgba(0,255,65,0.3);text-align:center;height:80vh;display:flex;flex-direction:column;justify-content:center;">
                 <div style="font-size:4rem;margin-bottom:1rem;">[AUDIO]</div>
                 <audio controls autoplay src="${content.file_url}" style="width:100%;filter:invert(1) hue-rotate(180deg);"></audio>
             </div>
         `;
     } else {
         viewContent.innerHTML = `
-            <div style="padding:3rem;text-align:center;background:#000;border:2px solid rgba(0,255,65,0.3);">
-                <p style="margin-bottom:1.5rem;">[FILE_PREVIEW_UNAVAILABLE]</p>
+            <div style="padding:3rem;text-align:center;background:#000;border:2px solid rgba(0,255,65,0.3);height:80vh;display:flex;flex-direction:column;justify-content:center;">
+                <p style="margin-bottom:1.5rem;">[LOADING...]</p>
             </div>
         `;
+        fetch(content.file_url)
+            .then(res => {
+                if (res.ok) {
+                    const contentType = res.headers.get('content-type');
+                    if (contentType && (contentType.startsWith('text/') || contentType === 'application/javascript' || contentType === 'application/json')) {
+                        return res.text().then(text => {
+                            viewContent.innerHTML = `<pre style="white-space: pre-wrap; word-break: break-word; max-height:80vh;overflow:auto;background:#000;color:#00ff00;">${escapeHtml(text)}</pre>`;
+                        });
+                    } else {
+                        viewContent.innerHTML = `
+                            <div style="padding:3rem;text-align:center;background:#000;border:2px solid rgba(0,255,65,0.3);height:80vh;display:flex;flex-direction:column;justify-content:center;">
+                                <p style="margin-bottom:1.5rem;">[FILE_PREVIEW_UNAVAILABLE]</p>
+                            </div>
+                        `;
+                    }
+                } else {
+                    throw new Error('Fetch failed');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                viewContent.innerHTML = `
+                    <div style="padding:3rem;text-align:center;background:#000;border:2px solid rgba(0,255,65,0.3);height:80vh;display:flex;flex-direction:column;justify-content:center;">
+                        <p style="margin-bottom:1.5rem;">[FILE_PREVIEW_UNAVAILABLE]</p>
+                    </div>
+                `;
+            });
     }
   
     const viewDescription = document.getElementById('viewDescription');
@@ -645,13 +712,21 @@ async function viewContent(id) {
         <span>VIEWS: ${content.view_count}</span>
     `;
   
+    // Hide extra download button if exists
+    const downloadBtn = document.getElementById('downloadBtn');
+    if (downloadBtn) {
+        downloadBtn.style.display = 'none';
+    }
+  
     showModal('viewModal');
     filterContent(); // Refresh to show updated view count
 }
 
 // Delete Content
 async function deleteContent(id) {
-    if (!confirm('[CONFIRM_DELETE?] This action cannot be undone.')) return;
+    // Custom confirm dialog (assuming HTML has a confirmModal with yes/no buttons)
+    // For simplicity, using browser confirm, but replace with custom if HTML supports
+    if (!window.confirm('[CONFIRM_DELETE?] This action cannot be undone.')) return;
   
     const content = allContent.find(c => c.id === id);
     if (!content) return;
@@ -673,7 +748,7 @@ async function deleteContent(id) {
         loadContent();
     } catch (err) {
         console.error('Delete error:', err);
-        alert('[ERROR] Failed to delete file');
+        window.alert('[ERROR] Failed to delete file');
     }
 }
 
@@ -692,6 +767,6 @@ async function downloadFile(url, fileName) {
         URL.revokeObjectURL(link.href);
     } catch (err) {
         console.error('Download error:', err);
-        alert('[ERROR] Failed to download file');
+        window.alert('[ERROR] Failed to download file');
     }
 }
