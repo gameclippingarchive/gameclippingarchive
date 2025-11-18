@@ -121,6 +121,7 @@ function hideModal(modalId) {
         document.getElementById('uploadProgress').style.display = 'none';
         selectedFile = null;
         document.querySelector('.file-label').classList.remove('has-file');
+        document.getElementById('fileInput').value = '';
     }
 }
 
@@ -321,6 +322,8 @@ async function handleUpload(e) {
     const progressFill = document.querySelector('.progress-fill');
     const progressText = document.querySelector('.progress-text');
     progressContainer.style.display = 'block';
+    progressFill.style.width = '0%';
+    progressText.textContent = '[UPLOADING...] 0%';
   
     // Disable form
     document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
@@ -328,32 +331,43 @@ async function handleUpload(e) {
     });
   
     try {
-        // Simulate progress
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-            progress += Math.random() * 15;
-            if (progress < 90) {
-                progressFill.style.width = `${progress}%`;
-                progressText.textContent = `[UPLOADING...] ${Math.floor(progress)}%`;
-            }
-        }, 300);
-      
-        // Upload file to Supabase Storage
+        // Upload file to Supabase Storage with real progress
         const fileExt = selectedFile.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const uploadUrl = `${SUPABASE_URL}/storage/v1/object/files/${fileName}`;
       
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('files')
-            .upload(fileName, selectedFile);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', uploadUrl);
+        xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
+        xhr.setRequestHeader('Content-Type', selectedFile.type || 'application/octet-stream');
       
-        if (uploadError) throw uploadError;
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percent = (event.loaded / event.total) * 100;
+                progressFill.style.width = `${percent}%`;
+                progressText.textContent = `[UPLOADING...] ${Math.floor(percent)}%`;
+            }
+        };
+      
+        const uploadPromise = new Promise((resolve, reject) => {
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve();
+                } else {
+                    reject(new Error(`Upload failed with status ${xhr.status}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Upload error'));
+            xhr.send(selectedFile);
+        });
+      
+        await uploadPromise;
       
         // Get public URL
         const { data: urlData } = supabase.storage
             .from('files')
             .getPublicUrl(fileName);
       
-        clearInterval(progressInterval);
         progressFill.style.width = '95%';
         progressText.textContent = '[UPLOADING...] 95%';
       
@@ -380,6 +394,10 @@ async function handleUpload(e) {
       
         setTimeout(() => {
             hideModal('uploadModal');
+            // Re-enable form after hide
+            document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
+                el.disabled = false;
+            });
             loadContent();
         }, 500);
       
@@ -459,7 +477,16 @@ function displayContent(content) {
     });
   
     document.querySelectorAll('.download-btn').forEach(btn => {
-        btn.addEventListener('click', () => window.open(btn.dataset.url, '_blank'));
+        btn.addEventListener('click', () => {
+            const url = btn.dataset.url;
+            const fileName = url.split('/').pop();
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
     });
   
     document.querySelectorAll('.delete-btn').forEach(btn => {
@@ -498,7 +525,7 @@ function createContentCard(content) {
                 </div>
                 <div class="card-actions">
                     <button class="card-btn view-btn" data-id="${content.id}">[VIEW]</button>
-                    <button class="card-btn download-btn" data-url="${content.file_url}">[DL]</button>
+                    <button class="card-btn download-btn" data-url="${content.file_url}">Download</button>
                     ${isOwner ? `<button class="card-btn delete delete-btn" data-id="${content.id}">[DEL]</button>` : ''}
                 </div>
             </div>
@@ -602,7 +629,6 @@ async function viewContent(id) {
         viewContent.innerHTML = `
             <div style="padding:3rem;text-align:center;background:#000;border:2px solid rgba(0,255,65,0.3);">
                 <p style="margin-bottom:1.5rem;">[FILE_PREVIEW_UNAVAILABLE]</p>
-                <button class="btn-primary" onclick="window.open('${content.file_url}', '_blank')">[DOWNLOAD_FILE]</button>
             </div>
         `;
     }
@@ -620,8 +646,6 @@ async function viewContent(id) {
         <span>|</span>
         <span>VIEWS: ${content.view_count}</span>
     `;
-  
-    document.getElementById('downloadBtn').onclick = () => window.open(content.file_url, '_blank');
   
     showModal('viewModal');
     filterContent(); // Refresh to show updated view count
