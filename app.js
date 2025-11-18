@@ -331,46 +331,45 @@ async function handleUpload(e) {
     });
   
     try {
+        // Upload file to Supabase Storage with real progress
         const fileExt = selectedFile.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const uploadUrl = `${SUPABASE_URL}/storage/v1/object/files/${fileName}`;
       
-        await new Promise((resolve, reject) => {
-            const upload = new tus.Upload(selectedFile, {
-                endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
-                headers: {
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                    'x-upsert': 'false'
-                },
-                uploadDataDuringCreation: true,
-                metadata: {
-                    bucketName: 'files',
-                    objectName: fileName,
-                    contentType: selectedFile.type || 'application/octet-stream',
-                    cacheControl: '3600'
-                },
-                chunkSize: 6 * 1024 * 1024,
-                onError: (error) => {
-                    reject(error);
-                },
-                onProgress: (bytesUploaded, bytesTotal) => {
-                    const percentage = (bytesUploaded / bytesTotal * 90).toFixed(2);
-                    progressFill.style.width = `${percentage}%`;
-                    progressText.textContent = `[UPLOADING...] ${percentage}%`;
-                },
-                onSuccess: () => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', uploadUrl);
+        xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
+        xhr.setRequestHeader('Content-Type', selectedFile.type || 'application/octet-stream');
+      
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+                const percent = (event.loaded / event.total) * 100;
+                progressFill.style.width = `${percent}%`;
+                progressText.textContent = `[UPLOADING...] ${Math.floor(percent)}%`;
+            }
+        };
+      
+        const uploadPromise = new Promise((resolve, reject) => {
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
                     resolve();
+                } else {
+                    reject(new Error(`Upload failed with status ${xhr.status}`));
                 }
-            });
-            upload.start();
+            };
+            xhr.onerror = () => reject(new Error('Upload error'));
+            xhr.send(selectedFile);
         });
       
-        progressFill.style.width = '95%';
-        progressText.textContent = '[UPLOADING...] 95%';
+        await uploadPromise;
       
         // Get public URL
         const { data: urlData } = supabase.storage
             .from('files')
             .getPublicUrl(fileName);
+      
+        progressFill.style.width = '95%';
+        progressText.textContent = '[UPLOADING...] 95%';
       
         // Create database entry
         const { error: dbError } = await supabase
@@ -395,10 +394,6 @@ async function handleUpload(e) {
       
         setTimeout(() => {
             hideModal('uploadModal');
-            // Re-enable form after hide
-            document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
-                el.disabled = false;
-            });
             loadContent();
         }, 500);
       
