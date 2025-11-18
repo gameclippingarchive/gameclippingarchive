@@ -47,6 +47,20 @@ function polishUI() {
             max-width: 350px;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .card-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 8px 12px;
+            white-space: nowrap;
         }
         .card-preview {
             height: 200px;
