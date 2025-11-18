@@ -477,15 +477,10 @@ function displayContent(content) {
     });
   
     document.querySelectorAll('.download-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const url = btn.dataset.url;
             const fileName = url.split('/').pop();
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            await downloadFile(url, fileName);
         });
     });
   
@@ -525,8 +520,8 @@ function createContentCard(content) {
                 </div>
                 <div class="card-actions">
                     <button class="card-btn view-btn" data-id="${content.id}">[VIEW]</button>
-                    <button class="card-btn download-btn" data-url="${content.file_url}">Download</button>
-                    ${isOwner ? `<button class="card-btn delete delete-btn" data-id="${content.id}">[DEL]</button>` : ''}
+                    <button class="card-btn download-btn" data-url="${content.file_url}">[DOWNLOAD]</button>
+                    ${isOwner ? `<button class="card-btn delete delete-btn" data-id="${content.id}">[DELETE]</button>` : ''}
                 </div>
             </div>
         </div>
@@ -564,7 +559,7 @@ function getPreviewHTML(content) {
 function getFileIcon(type) {
     switch(type) {
         case 'video': return '[VID]';
-        case 'audio': return '[AUD]';
+        case 'audio': return '[AUDIO]';
         case 'image': return '[IMG]';
         case 'document': return '[DOC]';
         default: return '[FILE]';
@@ -574,7 +569,7 @@ function getFileIcon(type) {
 function getTypeLabel(type) {
     const labels = {
         'video': '[VID]',
-        'audio': '[AUD]',
+        'audio': '[AUDIO]',
         'image': '[IMG]',
         'document': '[DOC]',
         'other': '[FILE]'
@@ -621,7 +616,7 @@ async function viewContent(id) {
     } else if (content.file_type === 'audio') {
         viewContent.innerHTML = `
             <div style="padding:2rem;background:#000;border:2px solid rgba(0,255,65,0.3);text-align:center;">
-                <div style="font-size:4rem;margin-bottom:1rem;">[AUD]</div>
+                <div style="font-size:4rem;margin-bottom:1rem;">[AUDIO]</div>
                 <audio controls autoplay src="${content.file_url}" style="width:100%;filter:invert(1) hue-rotate(180deg);"></audio>
             </div>
         `;
@@ -676,5 +671,24 @@ async function deleteContent(id) {
     } catch (err) {
         console.error('Delete error:', err);
         alert('[ERROR] Failed to delete file');
+    }
+}
+
+// Force Download
+async function downloadFile(url, fileName) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const blob = await response.blob();
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+    } catch (err) {
+        console.error('Download error:', err);
+        alert('[ERROR] Failed to download file');
     }
 }
