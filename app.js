@@ -7,9 +7,11 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const COMPRESSION_CONFIG = {
     image: {
         maxWidth: 1920,
-        maxHeight: 1920,
-        quality: 0.85,
-        targetSizeMB: 2
+        maxHeight: 1080,
+        quality: 0.7,  // More aggressive starting quality
+        minQuality: 0.3,  // Allow lower quality if needed
+        targetSizeMB: 1,  // Target 1MB or less
+        aggressiveMode: true
     },
     video: {
         maxWidth: 1920,
