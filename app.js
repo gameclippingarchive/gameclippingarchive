@@ -39,73 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadContent();
     setupEventListeners();
     polishUI();
-    loadFFmpegScripts();
 });
-
-// Load FFmpeg library scripts
-function loadFFmpegScripts() {
-    // Load FFmpeg.wasm from jsdelivr (allowed by CSP)
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js';
-    script.crossOrigin = 'anonymous';
-    script.onload = () => {
-        console.log('[✓ FFmpeg.js loaded from jsdelivr]');
-    };
-    script.onerror = () => {
-        console.error('[✗ Failed to load FFmpeg.js from jsdelivr]');
-    };
-    document.head.appendChild(script);
-}
-
-// Initialize FFmpeg instance
-async function getFFmpegInstance() {
-    if (ffmpegInstance) {
-        return ffmpegInstance;
-    }
-    
-    if (ffmpegLoading) {
-        // Wait for existing load to complete
-        while (ffmpegLoading) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        return ffmpegInstance;
-    }
-    
-    try {
-        ffmpegLoading = true;
-        
-        if (!window.FFmpeg || !window.FFmpeg.FFmpeg) {
-            throw new Error('FFmpeg library not available');
-        }
-        
-        const { FFmpeg } = window.FFmpeg;
-        const ffmpeg = new FFmpeg();
-        
-        ffmpeg.on('log', ({ message }) => {
-            console.log('[FFmpeg]', message);
-        });
-        
-        ffmpeg.on('progress', ({ progress }) => {
-            console.log(`[FFmpeg] Progress: ${(progress * 100).toFixed(1)}%`);
-        });
-        
-        console.log('[Loading FFmpeg core from jsdelivr...]');
-        await ffmpeg.load({
-            coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-            wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-        });
-        
-        console.log('[✓ FFmpeg ready for compression]');
-        ffmpegInstance = ffmpeg;
-        ffmpegLoading = false;
-        return ffmpeg;
-        
-    } catch (error) {
-        ffmpegLoading = false;
-        console.error('[✗ FFmpeg load error:]', error);
-        throw error;
-    }
-}
 
 function polishUI() {
     const style = document.createElement('style');
