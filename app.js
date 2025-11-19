@@ -13,13 +13,13 @@ const COMPRESSION_CONFIG = {
     minQuality: 0.6 // Minimum quality threshold
   },
   video: {
-    maxWidth: 1280,
-    maxHeight: 720,
-    targetBitrate: 2500000,
+    maxWidth: 1920,
+    maxHeight: 1080,
+    targetBitrate: 5000000, // Higher for better quality
     targetSizeMB: Infinity
   },
   audio: {
-    targetBitrate: 128000,
+    targetBitrate: 192000, // Higher for better quality
     targetSizeMB: Infinity
   }
 };
@@ -241,7 +241,7 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
     const video = document.createElement('video');
     video.src = url;
     video.muted = true;
-    video.playbackRate = 16; // Speed up playback for faster processing (max in many browsers)
+    video.playbackRate = 1; // Normal speed for correct output duration
     video.style.display = 'none';
     document.body.appendChild(video);
     await new Promise((resolve, reject) => {
@@ -342,7 +342,7 @@ async function compressAudio(file, config = COMPRESSION_CONFIG.audio) {
     const url = URL.createObjectURL(file);
     const audio = document.createElement('audio');
     audio.src = url;
-    audio.playbackRate = 16; // Speed up for faster processing
+    audio.playbackRate = 1; // Normal speed
     audio.style.display = 'none';
     document.body.appendChild(audio);
     await new Promise((resolve, reject) => {
@@ -741,8 +741,10 @@ async function handleUpload(e) {
     if (compressedFile) {
       if (fileType === 'image') {
         finalExt = 'jpg';
-      } else if (fileType === 'video' || fileType === 'audio') {
-        finalExt = 'webm';
+      } else if (fileType === 'video') {
+        finalExt = compressedFile.name.split('.').pop().toLowerCase();
+      } else if (fileType === 'audio') {
+        finalExt = compressedFile.name.split('.').pop().toLowerCase();
       }
     }
     const fileName = `${timestamp}-${randomStr}.${finalExt}`;
