@@ -228,118 +228,142 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video, onProgress
             
             video.muted = true;
             video.playsInline = true;
+            video.preload = 'metadata';
+            
+            // Set source ONCE before setting up event handlers
+            const videoUrl = URL.createObjectURL(file);
+            video.src = videoUrl;
             
             video.onloadedmetadata = () => {
-                try {
-                    // Calculate dimensions
-                    let width = video.videoWidth;
-                    let height = video.videoHeight;
-                    const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
-                    width = Math.floor(width * ratio);
-                    height = Math.floor(height * ratio);
-                    
-                    canvas.width = width;
-                    canvas.height = height;
-                    
-                    console.log(`[Video dimensions: ${width}x${height}]`);
-                    
-                    // Start capturing from canvas
-                    const stream = canvas.captureStream(config.fps);
-                    
-                    // Check supported MIME types
-                    let mimeType = 'video/webm;codecs=vp8,opus';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = 'video/webm;codecs=vp8';
+                // Calculate dimensions
+                let width = video.videoWidth;
+                let height = video.videoHeight;
+                const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
+                width = Math.floor(width * ratio);
+                height = Math.floor(height * ratio);
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                console.log(`[Video dimensions: ${width}x${height}, duration: ${video.duration}s]`);
+                
+                // Check supported MIME types
+                let mimeType = 'video/webm;codecs=vp8';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'video/webm';
+                }
+                
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    console.error('[No supported video MIME type found]');
+                    URL.revokeObjectURL(videoUrl);
+                    reject(new Error('MediaRecorder not supported for video'));
+                    return;
+                }
+                
+                console.log(`[Using MIME type: ${mimeType}]`);
+                
+                // Start capturing from canvas
+                const stream = canvas.captureStream(config.fps);
+                
+                const mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: mimeType,
+                    videoBitsPerSecond: config.bitrate
+                });
+                
+                const chunks = [];
+                
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) {
+                        chunks.push(e.data);
                     }
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = 'video/webm';
-                    }
+                };
+                
+                mediaRecorder.onstop = () => {
+                    URL.revokeObjectURL(videoUrl);
+                    const blob = new Blob(chunks, { type: 'video/webm' });
+                    const compressedFile = new File(
+                        [blob],
+                        file.name.replace(/\.[^.]+$/, '_compressed.webm'),
+                        { type: 'video/webm', lastModified: Date.now() }
+                    );
                     
-                    const mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: mimeType,
-                        videoBitsPerSecond: config.bitrate
+                    console.log(`[✓ Video compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB]`);
+                    
+                    resolve({
+                        file: compressedFile,
+                        originalSize: file.size,
+                        compressedSize: blob.size,
+                        compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1),
+                        dimensions: `${width}x${height}`,
+                        originalDimensions: `${video.videoWidth}x${video.videoHeight}`
                     });
+                };
+                
+                mediaRecorder.onerror = (e) => {
+                    console.error('[MediaRecorder error]', e);
+                    URL.revokeObjectURL(videoUrl);
+                    reject(new Error('MediaRecorder failed'));
+                };
+                
+                // Draw frames to canvas
+                let frameCount = 0;
+                const frameInterval = 1000 / config.fps;
+                let lastFrameTime = 0;
+                
+                const drawFrame = (currentTime) => {
+                    if (video.paused || video.ended) {
+                        return;
+                    }
                     
-                    const chunks = [];
+                    const elapsed = currentTime - lastFrameTime;
                     
-                    mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0) {
-                            chunks.push(e.data);
-                        }
-                    };
-                    
-                    mediaRecorder.onstop = () => {
-                        const blob = new Blob(chunks, { type: 'video/webm' });
-                        const compressedFile = new File(
-                            [blob],
-                            file.name.replace(/\.[^.]+$/, '_compressed.webm'),
-                            { type: 'video/webm', lastModified: Date.now() }
-                        );
+                    if (elapsed >= frameInterval) {
+                        ctx.drawImage(video, 0, 0, width, height);
+                        frameCount++;
+                        lastFrameTime = currentTime;
                         
-                        console.log(`[✓ Video compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB]`);
-                        
-                        resolve({
-                            file: compressedFile,
-                            originalSize: file.size,
-                            compressedSize: blob.size,
-                            compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1),
-                            dimensions: `${width}x${height}`,
-                            originalDimensions: `${video.videoWidth}x${video.videoHeight}`
-                        });
-                    };
-                    
-                    mediaRecorder.onerror = (e) => {
-                        console.error('[MediaRecorder error]', e);
-                        reject(new Error('MediaRecorder failed'));
-                    };
-                    
-                    // Draw frames to canvas
-                    let frameCount = 0;
-                    const drawFrame = () => {
-                        if (!video.paused && !video.ended) {
-                            ctx.drawImage(video, 0, 0, width, height);
-                            frameCount++;
-                            
-                            if (onProgress && video.duration) {
-                                const progress = (video.currentTime / video.duration) * 100;
-                                onProgress(progress);
-                            }
-                            
-                            requestAnimationFrame(drawFrame);
+                        if (onProgress && video.duration) {
+                            const progress = (video.currentTime / video.duration) * 100;
+                            onProgress(Math.min(progress, 99));
                         }
-                    };
+                    }
                     
-                    video.onplay = () => {
-                        mediaRecorder.start();
-                        drawFrame();
-                    };
-                    
-                    video.onended = () => {
-                        console.log(`[Video ended, ${frameCount} frames captured]`);
+                    requestAnimationFrame(drawFrame);
+                };
+                
+                video.onended = () => {
+                    console.log(`[Video ended, ${frameCount} frames captured]`);
+                    setTimeout(() => {
                         mediaRecorder.stop();
-                    };
-                    
-                    video.onerror = () => {
-                        reject(new Error('Video playback failed'));
-                    };
-                    
-                    // Start playback
-                    video.src = URL.createObjectURL(file);
-                    video.play().catch(err => {
+                    }, 500);
+                };
+                
+                video.onerror = (e) => {
+                    console.error('[Video error]', e);
+                    URL.revokeObjectURL(videoUrl);
+                    reject(new Error('Video playback failed'));
+                };
+                
+                // Start everything
+                mediaRecorder.start(100); // Collect data every 100ms
+                video.play()
+                    .then(() => {
+                        console.log('[Video playback started]');
+                        requestAnimationFrame(drawFrame);
+                    })
+                    .catch(err => {
                         console.error('[Video play error]', err);
+                        URL.revokeObjectURL(videoUrl);
+                        mediaRecorder.stop();
                         reject(err);
                     });
-                    
-                } catch (err) {
-                    reject(err);
-                }
             };
             
-            video.onerror = () => {
+            video.onerror = (e) => {
+                console.error('[Video metadata error]', e);
+                URL.revokeObjectURL(videoUrl);
                 reject(new Error('Video metadata loading failed'));
             };
-            
-            video.src = URL.createObjectURL(file);
         });
         
     } catch (error) {
