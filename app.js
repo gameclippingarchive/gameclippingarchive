@@ -116,6 +116,16 @@ function polishUI() {
       transition: width 0.3s ease;
       box-shadow: 0 0 10px #00ff00;
     }
+    .upload-progress-container {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: #000;
+      border: 1px solid #00ff00;
+      padding: 10px;
+      box-shadow: 0 0 10px #00ff00;
+      z-index: 1000;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -259,7 +269,7 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
     canvas.style.display = 'none';
     document.body.appendChild(canvas);
     const ctx = canvas.getContext('2d');
-    const canvasStream = canvas.captureStream(30); // Higher FPS for better quality
+    const canvasStream = canvas.captureStream(60); // Higher FPS to avoid dropping frames
     const audioStream = video.captureStream();
     const audioTrack = audioStream.getAudioTracks()[0];
     const combinedStream = new MediaStream();
@@ -404,6 +414,20 @@ async function compressAudio(file, config = COMPRESSION_CONFIG.audio) {
       note: `Audio compression failed: ${error.message}. Uploading original.`
     };
   }
+}
+
+// Function to create a progress container for background upload
+function createUploadProgress(fileName) {
+  const progressContainer = document.createElement('div');
+  progressContainer.className = 'upload-progress-container';
+  progressContainer.innerHTML = `
+    <p>Uploading ${fileName}</p>
+    <div class="compression-progress">
+      <div class="compression-progress-bar" style="width: 0%"></div>
+    </div>
+  `;
+  document.body.appendChild(progressContainer);
+  return progressContainer.querySelector('.compression-progress-bar');
 }
 
 // Auth
@@ -719,37 +743,28 @@ async function handleUpload(e) {
   const description = document.getElementById('uploadDescription').value.trim();
   const tagsInput = document.getElementById('uploadTags').value.trim();
   const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
-  const progressContainer = document.getElementById('uploadProgress');
-  const progressFill = document.querySelector('.progress-fill');
-  const progressText = document.querySelector('.progress-text');
-  progressContainer.style.display = 'block';
-  progressFill.style.width = '0%';
-  progressText.textContent = '[UPLOADING...] 0%';
-  document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
-    el.disabled = true;
-  });
-  try {
-    // Use compressed/optimized file if available
-    const fileToUpload = compressedFile || selectedFile;
-    // Generate safe filename with proper extension
-    const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substr(2, 9);
-    const originalExt = selectedFile.name.split('.').pop().toLowerCase();
-    // Determine final extension based on compression
-    let finalExt = originalExt;
-    const fileType = detectFileType(selectedFile);
-    if (compressedFile) {
-      if (fileType === 'image') {
-        finalExt = 'jpg';
-      } else if (fileType === 'video') {
-        finalExt = compressedFile.name.split('.').pop().toLowerCase();
-      } else if (fileType === 'audio') {
-        finalExt = compressedFile.name.split('.').pop().toLowerCase();
-      }
+  const fileType = detectFileType(selectedFile);
+  const fileToUpload = compressedFile || selectedFile;
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substr(2, 9);
+  const originalExt = selectedFile.name.split('.').pop().toLowerCase();
+  let finalExt = originalExt;
+  if (compressedFile) {
+    if (fileType === 'image') {
+      finalExt = 'jpg';
+    } else if (fileType === 'video') {
+      finalExt = compressedFile.name.split('.').pop().toLowerCase();
+    } else if (fileType === 'audio') {
+      finalExt = compressedFile.name.split('.').pop().toLowerCase();
     }
-    const fileName = `${timestamp}-${randomStr}.${finalExt}`;
-    console.log('Uploading file:', fileName, 'Size:', fileToUpload.size, 'Type:', fileToUpload.type);
-    // Upload file with correct content type
+  }
+  const fileName = `${timestamp}-${randomStr}.${finalExt}`;
+  console.log('Uploading file:', fileName, 'Size:', fileToUpload.size, 'Type:', fileToUpload.type);
+  // Close the modal and show background progress
+  hideModal('uploadModal');
+  const progressBar = createUploadProgress(fileName);
+  progressBar.style.width = '0%';
+  try {
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('files')
       .upload(fileName, fileToUpload, {
@@ -761,20 +776,17 @@ async function handleUpload(e) {
       console.error('Upload error details:', uploadError);
       throw uploadError;
     }
-    progressFill.style.width = '90%';
-    progressText.textContent = '[UPLOADING...] 90%';
-    // Get public URL
+    progressBar.style.width = '90%';
     const { data: urlData } = supabase.storage
       .from('files')
       .getPublicUrl(fileName);
-    // Create database entry
     const { error: dbError } = await supabase
       .from('content')
       .insert([{
         title,
         description,
         file_url: urlData.publicUrl,
-        file_type: detectFileType(selectedFile),
+        file_type: fileType,
         file_size: fileToUpload.size,
         uploader_name: currentUser.display_name || currentUser.username,
         uploader_id: currentUser.id,
@@ -782,19 +794,16 @@ async function handleUpload(e) {
         tags
       }]);
     if (dbError) throw dbError;
-    progressFill.style.width = '100%';
-    progressText.textContent = '[UPLOAD_COMPLETE] 100%';
-    setTimeout(() => {
-      hideModal('uploadModal');
-      loadContent();
-    }, 500);
+    progressBar.style.width = '100%';
+    loadContent();
   } catch (err) {
     console.error('Upload error:', err);
-    showError('uploadError', 'Upload failed: ' + err.message);
-    progressContainer.style.display = 'none';
-    document.querySelectorAll('#uploadForm button, #uploadForm input, #uploadForm textarea').forEach(el => {
-      el.disabled = false;
-    });
+    alert('Upload failed: ' + err.message);
+  } finally {
+    // Remove progress after 3 seconds
+    setTimeout(() => {
+      progressBar.parentNode.remove();
+    }, 3000);
   }
 }
 
