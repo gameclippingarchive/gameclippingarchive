@@ -8,18 +8,19 @@ const COMPRESSION_CONFIG = {
     image: {
         maxWidth: 2560,
         maxHeight: 2560,
-        quality: 0.85,
-        targetSizeMB: 5
+        quality: 0.82,
+        targetSizeMB: Infinity, // No size limit
+        minQuality: 0.6 // Minimum quality threshold
     },
     video: {
         maxWidth: 1920,
         maxHeight: 1080,
-        targetBitrate: 2500000, // 2.5 Mbps
-        targetSizeMB: 50
+        targetBitrate: 2500000,
+        targetSizeMB: Infinity
     },
     audio: {
-        targetBitrate: 128000, // 128 kbps
-        targetSizeMB: 10
+        targetBitrate: 128000,
+        targetSizeMB: Infinity
     }
 };
 
