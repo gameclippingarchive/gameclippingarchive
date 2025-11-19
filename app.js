@@ -9,17 +9,20 @@ const COMPRESSION_CONFIG = {
         maxWidth: 2560,
         maxHeight: 2560,
         quality: 0.82,
-        targetSizeMB: Infinity, // No size limit
-        minQuality: 0.6 // Minimum quality threshold
+        targetSizeMB: Infinity,
+        minQuality: 0.6
     },
     video: {
         maxWidth: 1920,
         maxHeight: 1080,
-        targetBitrate: 5000000, // Higher for better quality
+        targetBitrate: 3000000, // Balanced bitrate for good quality
+        maxBitrate: 5000000,
+        minBitrate: 1000000,
+        targetFPS: 30, // Maintain frame rate
         targetSizeMB: Infinity
     },
     audio: {
-        targetBitrate: 192000, // Higher for better quality
+        targetBitrate: 128000, // Good quality audio
         targetSizeMB: Infinity
     }
 };
@@ -163,6 +166,147 @@ function polishUI() {
             font-size: 3rem;
             color: rgba(0,255,65,0.6);
         }
+        .upload-processing-card {
+            border: 2px solid #00ff00;
+            padding: 15px;
+            margin: 10px 0;
+            background: rgba(0, 255, 0, 0.05);
+            border-radius: 5px;
+        }
+        .upload-processing-card.completed {
+            border-color: #00ffff;
+            background: rgba(0, 255, 255, 0.05);
+        }
+        .processing-header {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+        }
+        .processing-frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid #00ff00;
+        }
+        .processing-frame.completed {
+            border-color: #00ffff;
+            background: rgba(0, 255, 255, 0.1);
+        }
+        .processing-text {
+            color: #00ff00;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .upload-processing-frame {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 320px;
+            background: #000;
+            border: 3px solid #00ff00;
+            padding: 20px;
+            z-index: 10000;
+            box-shadow: 0 0 30px #00ff00;
+            font-family: 'Courier New', monospace;
+        }
+        .upload-card-header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #00ff00;
+        }
+        .upload-card-title {
+            color: #00ff00;
+            font-size: 1.2em;
+            margin-bottom: 5px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .upload-card-filename {
+            color: #00ffff;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+        .upload-card-preview {
+            height: 120px;
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            background: rgba(0, 255, 0, 0.05);
+            position: relative;
+        }
+        .upload-preview-image,
+        .upload-preview-video,
+        .upload-preview-audio,
+        .upload-preview-file {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            color: rgba(0, 255, 0, 0.7);
+        }
+        .file-type-badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 2px 8px;
+            border: 1px solid #00ff00;
+            font-size: 0.8em;
+        }
+        .upload-card-status {
+            text-align: center;
+        }
+        .upload-status-text {
+            color: #00ff00;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            min-height: 1.2em;
+        }
+        .upload-progress-container {
+            width: 100%;
+            height: 6px;
+            background: rgba(0, 255, 0, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .upload-progress-bar {
+            height: 100%;
+            background: #00ff00;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 10px #00ff00;
+        }
+        .upload-percentage {
+            color: #00ffff;
+            font-size: 0.9em;
+        }
+        .upload-success {
+            border-color: #00ff00;
+            box-shadow: 0 0 40px #00ff00;
+        }
+        .upload-success .upload-status-text {
+            color: #00ff00;
+        }
+        .upload-error {
+            border-color: #ff0000;
+            box-shadow: 0 0 40px #ff0000;
+        }
+        .upload-error .upload-status-text {
+            color: #ff0000;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -270,10 +414,15 @@ function getBestVideoMime() {
     const candidates = [
         'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
         'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus'
+        'video/webm;codecs=vp8,opus',
+        'video/mp4',
+        'video/webm'
     ];
     for (const mime of candidates) {
-        if (MediaRecorder.isTypeSupported(mime)) return mime;
+        if (MediaRecorder.isTypeSupported(mime)) {
+            console.log('Using video mime type:', mime);
+            return mime;
+        }
     }
     return 'video/webm';
 }
@@ -283,36 +432,78 @@ function getBestAudioMime() {
     const candidates = [
         'audio/mp4;codecs=mp4a.40.2',
         'audio/webm;codecs=opus',
-        'audio/webm'
+        'audio/webm',
+        'audio/mp4'
     ];
     for (const mime of candidates) {
-        if (MediaRecorder.isTypeSupported(mime)) return mime;
+        if (MediaRecorder.isTypeSupported(mime)) {
+            console.log('Using audio mime type:', mime);
+            return mime;
+        }
     }
     return 'audio/webm';
 }
 
-// Video Compression using native browser APIs (MediaRecorder + Canvas for resizing)
+// Improved Video Compression that maintains quality
 async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
     try {
         console.log('[Starting video compression...]');
+        
+        // For very small files, skip compression
+        if (file.size < 5 * 1024 * 1024) { // 5MB
+            console.log('[Video is small, skipping compression]');
+            return {
+                file: file,
+                originalSize: file.size,
+                compressedSize: file.size,
+                compressionRatio: 0,
+                note: 'Video is already small, using original.'
+            };
+        }
+
         const url = URL.createObjectURL(file);
         const video = document.createElement('video');
         video.src = url;
         video.muted = true;
-        video.playbackRate = 1; // Normal speed for correct output duration
+        video.playsInline = true;
         video.style.display = 'none';
         document.body.appendChild(video);
 
         await new Promise((resolve, reject) => {
             video.onloadedmetadata = resolve;
             video.onerror = reject;
+            setTimeout(() => reject(new Error('Video metadata loading timeout')), 10000);
         });
 
         let width = video.videoWidth;
         let height = video.videoHeight;
+        const originalAspectRatio = width / height;
+        
+        // Calculate optimal dimensions while maintaining aspect ratio
         const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
         width = Math.floor(width * ratio);
         height = Math.floor(height * ratio);
+
+        console.log(`Video dimensions: ${video.videoWidth}x${video.videoHeight} -> ${width}x${height}`);
+
+        // Calculate adaptive bitrate based on resolution and content
+        const pixelCount = width * height;
+        let targetBitrate = config.targetBitrate;
+        
+        // Adjust bitrate based on resolution
+        if (pixelCount > 1920 * 1080) {
+            targetBitrate = config.maxBitrate;
+        } else if (pixelCount < 640 * 480) {
+            targetBitrate = config.minBitrate;
+        }
+        
+        // Adjust bitrate based on original file size (higher quality for larger files)
+        const originalMB = file.size / (1024 * 1024);
+        if (originalMB > 100) {
+            targetBitrate = Math.min(targetBitrate * 1.5, config.maxBitrate);
+        }
+
+        console.log(`Using bitrate: ${targetBitrate}bps`);
 
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -321,88 +512,165 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
         document.body.appendChild(canvas);
 
         const ctx = canvas.getContext('2d');
-        const canvasStream = canvas.captureStream(60); // Higher FPS to avoid dropping frames
-        const audioStream = video.captureStream();
-        const audioTrack = audioStream.getAudioTracks()[0];
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        const canvasStream = canvas.captureStream(config.targetFPS);
+        const audioContext = new AudioContext();
+        const destination = audioContext.createMediaStreamDestination();
+        
+        let audioTrack;
+        try {
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioTrack = audioStream.getAudioTracks()[0];
+        } catch (e) {
+            console.log('No audio track available');
+        }
 
         const combinedStream = new MediaStream();
         combinedStream.addTrack(canvasStream.getVideoTracks()[0]);
-        if (audioTrack) combinedStream.addTrack(audioTrack);
+        if (audioTrack) {
+            combinedStream.addTrack(audioTrack);
+        }
 
         const mimeType = getBestVideoMime();
         const options = {
-            mimeType,
-            videoBitsPerSecond: config.targetBitrate,
-            audioBitsPerSecond: 192000 // Even higher for better audio quality
+            mimeType: mimeType,
+            videoBitsPerSecond: targetBitrate,
+            audioBitsPerSecond: config.audio.targetBitrate
         };
+
+        // Fallback if preferred mime type not supported
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            options.mimeType = 'video/webm';
+            console.log('Falling back to default webm');
+        }
 
         const mediaRecorder = new MediaRecorder(combinedStream, options);
         const chunks = [];
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-
-        const compressed = new Promise((resolve, reject) => {
-            mediaRecorder.onstop = () => {
-                const blob = new Blob(chunks, { type: mimeType });
-                resolve(blob);
-            };
-            mediaRecorder.onerror = reject;
-        });
-
-        mediaRecorder.start(100); // Collect data every 100ms
-
-        let drawing = false;
-        function draw() {
-            if (video.paused || video.ended || !drawing) return;
-            ctx.drawImage(video, 0, 0, width, height);
-            requestAnimationFrame(draw);
-        }
-
-        video.play().then(() => {
-            drawing = true;
-            draw();
-        });
-
-        // Update progress based on video playback
-        const progressBar = document.getElementById('compressionProgress');
-        video.ontimeupdate = () => {
-            if (video.duration > 0) {
-                const percent = (video.currentTime / video.duration) * 100;
-                progressBar.style.width = `${percent}%`;
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
             }
         };
 
-        video.onended = () => {
-            drawing = false;
-            mediaRecorder.stop();
-        };
-
-        const blob = await compressed;
-
-        if (blob.size >= file.size) {
-            throw new Error('Compressed file larger or equal; using original.');
-        }
-
-        const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
-        const compressedFile = new File([blob], file.name.replace(/\.[^.]+/, '_compressed.' + ext), {
-            type: mimeType.split(';')[0]
+        const compressed = new Promise((resolve, reject) => {
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
+                resolve(blob);
+            };
+            mediaRecorder.onerror = (e) => {
+                console.error('MediaRecorder error:', e);
+                reject(new Error('Media recording failed'));
+            };
         });
 
-        console.log(`[✓ Video compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB]`);
+        // Start recording
+        mediaRecorder.start(1000); // Collect data every second for better performance
 
+        let drawing = true;
+        let startTime = Date.now();
+        
+        function drawFrame() {
+            if (!drawing || video.ended || video.paused) return;
+            
+            try {
+                ctx.clearRect(0, 0, width, height);
+                ctx.drawImage(video, 0, 0, width, height);
+                
+                // Update progress
+                const progressBar = document.getElementById('compressionProgress');
+                if (progressBar && video.duration > 0) {
+                    const percent = (video.currentTime / video.duration) * 100;
+                    progressBar.style.width = `${percent}%`;
+                }
+                
+                requestAnimationFrame(drawFrame);
+            } catch (e) {
+                console.error('Drawing error:', e);
+                drawing = false;
+            }
+        }
+
+        // Wait for video to be ready
+        await new Promise(resolve => {
+            video.oncanplay = resolve;
+        });
+
+        video.play().then(() => {
+            drawFrame();
+        }).catch(e => {
+            console.error('Video play failed:', e);
+            drawing = false;
+            mediaRecorder.stop();
+        });
+
+        // Stop when video ends
+        video.onended = () => {
+            drawing = false;
+            setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+            }, 1000);
+        };
+
+        // Safety timeout
+        const safetyTimeout = setTimeout(() => {
+            if (mediaRecorder.state === 'recording') {
+                console.log('Safety timeout reached, stopping recording');
+                mediaRecorder.stop();
+            }
+        }, 300000); // 5 minute timeout
+
+        const blob = await compressed;
+        clearTimeout(safetyTimeout);
+
+        // Cleanup
         document.body.removeChild(video);
         document.body.removeChild(canvas);
         URL.revokeObjectURL(url);
+        if (audioContext) audioContext.close();
+
+        const compressedMB = blob.size / (1024 * 1024);
+        const compressionRatio = ((1 - blob.size / file.size) * 100).toFixed(1);
+
+        console.log(`[✓ Video compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${compressedMB.toFixed(2)}MB, ratio: ${compressionRatio}%]`);
+
+        // If compression didn't help much or made it larger, return original
+        if (blob.size >= file.size * 0.95) { // Less than 5% savings
+            console.log('[Compression not effective, using original]');
+            return {
+                file: file,
+                originalSize: file.size,
+                compressedSize: file.size,
+                compressionRatio: 0,
+                note: 'Compression not effective, using original.'
+            };
+        }
+
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const compressedFile = new File([blob], 
+            file.name.replace(/\.[^.]+$/, `_compressed.${ext}`), {
+            type: mimeType.split(';')[0]
+        });
 
         return {
             file: compressedFile,
             originalSize: file.size,
             compressedSize: blob.size,
-            compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1),
+            compressionRatio: compressionRatio,
             dimensions: `${width}x${height}`,
-            originalDimensions: `${video.videoWidth}x${video.videoHeight}`
+            originalDimensions: `${video.videoWidth}x${video.videoHeight}`,
+            note: `Quality maintained at ${width}x${height} ${config.targetFPS}fps`
         };
     } catch (error) {
         console.error('[✗ Video compression error:]', error);
+        // Cleanup on error
+        document.querySelectorAll('video, canvas').forEach(el => {
+            if (el.parentNode === document.body) el.remove();
+        });
         return {
             file: file,
             originalSize: file.size,
@@ -418,68 +686,106 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
 async function compressAudio(file, config = COMPRESSION_CONFIG.audio) {
     try {
         console.log('[Starting audio compression...]');
+        
+        // Skip compression for small audio files
+        if (file.size < 2 * 1024 * 1024) { // 2MB
+            return {
+                file: file,
+                originalSize: file.size,
+                compressedSize: file.size,
+                compressionRatio: 0,
+                note: 'Audio file is small, using original.'
+            };
+        }
+
         const url = URL.createObjectURL(file);
         const audio = document.createElement('audio');
         audio.src = url;
-        audio.playbackRate = 1; // Normal speed
         audio.style.display = 'none';
         document.body.appendChild(audio);
 
         await new Promise((resolve, reject) => {
             audio.onloadedmetadata = resolve;
             audio.onerror = reject;
+            setTimeout(() => reject(new Error('Audio metadata loading timeout')), 10000);
         });
 
-        const audioStream = audio.captureStream();
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaElementSource(audio);
+        const destination = audioContext.createMediaStreamDestination();
+        source.connect(destination);
+        source.connect(audioContext.destination); // Keep audio playing
+
         const mimeType = getBestAudioMime();
         const options = {
-            mimeType,
+            mimeType: mimeType,
             audioBitsPerSecond: config.targetBitrate
         };
 
-        const mediaRecorder = new MediaRecorder(audioStream, options);
+        const mediaRecorder = new MediaRecorder(destination.stream, options);
         const chunks = [];
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                chunks.push(e.data);
+            }
+        };
 
         const compressed = new Promise((resolve, reject) => {
             mediaRecorder.onstop = () => {
-                const blob = new Blob(chunks, { type: mimeType });
+                const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
                 resolve(blob);
             };
             mediaRecorder.onerror = reject;
         });
 
-        mediaRecorder.start(100); // Collect data every 100ms
+        mediaRecorder.start(1000);
 
-        // Update progress based on audio playback
+        // Update progress
         const progressBar = document.getElementById('compressionProgress');
         audio.ontimeupdate = () => {
-            if (audio.duration > 0) {
+            if (progressBar && audio.duration > 0) {
                 const percent = (audio.currentTime / audio.duration) * 100;
                 progressBar.style.width = `${percent}%`;
             }
         };
 
         audio.play();
-        audio.onended = () => {
+
+        await new Promise(resolve => {
+            audio.onended = resolve;
+            setTimeout(resolve, 300000); // 5 minute timeout
+        });
+
+        if (mediaRecorder.state === 'recording') {
             mediaRecorder.stop();
-        };
+        }
 
         const blob = await compressed;
 
-        if (blob.size >= file.size) {
-            throw new Error('Compressed file larger or equal; using original.');
+        // Cleanup
+        document.body.removeChild(audio);
+        URL.revokeObjectURL(url);
+        audioContext.close();
+
+        if (blob.size >= file.size * 0.95) {
+            console.log('[Audio compression not effective, using original]');
+            return {
+                file: file,
+                originalSize: file.size,
+                compressedSize: file.size,
+                compressionRatio: 0,
+                note: 'Compression not effective, using original.'
+            };
         }
 
-        const ext = mimeType.startsWith('audio/mp4') ? 'm4a' : 'webm';
-        const compressedFile = new File([blob], file.name.replace(/\.[^.]+/, '_compressed.' + ext), {
+        const ext = mimeType.includes('mp4') ? 'm4a' : 'webm';
+        const compressedFile = new File([blob], 
+            file.name.replace(/\.[^.]+$/, `_compressed.${ext}`), {
             type: mimeType.split(';')[0]
         });
 
         console.log(`[✓ Audio compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB]`);
-
-        document.body.removeChild(audio);
-        URL.revokeObjectURL(url);
 
         return {
             file: compressedFile,
@@ -768,8 +1074,11 @@ async function handleFileSelect(e) {
             previewHTML = `<div class="file-preview-container">
                 <img src="${mediaUrl}" alt="Preview">
                 <div class="preview-overlay">
-                    <div class="compression-progress">
-                        <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
+                    <div class="processing-frame">
+                        <div class="processing-text">[PROCESSING]</div>
+                        <div class="compression-progress">
+                            <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -778,15 +1087,19 @@ async function handleFileSelect(e) {
             previewHTML = `<div class="file-preview-container">
                 <video src="${mediaUrl}" muted></video>
                 <div class="preview-overlay">
-                    <div class="compression-progress">
-                        <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
+                    <div class="processing-frame">
+                        <div class="processing-text">[PROCESSING]</div>
+                        <div class="compression-progress">
+                            <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
+                        </div>
                     </div>
                 </div>
             </div>`;
         } else if (fileType === 'audio') {
             previewHTML = `<div class="file-icon-preview">
                 [AUDIO]
-                <div style="position:absolute;bottom:10px;left:10px;right:10px;">
+                <div class="processing-frame">
+                    <div class="processing-text">[PROCESSING]</div>
                     <div class="compression-progress">
                         <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
                     </div>
@@ -795,7 +1108,8 @@ async function handleFileSelect(e) {
         } else {
             previewHTML = `<div class="file-icon-preview">
                 [FILE]
-                <div style="position:absolute;bottom:10px;left:10px;right:10px;">
+                <div class="processing-frame">
+                    <div class="processing-text">[PROCESSING]</div>
                     <div class="compression-progress">
                         <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
                     </div>
@@ -803,9 +1117,13 @@ async function handleFileSelect(e) {
             </div>`;
         }
         
-        let infoHTML = `<p><strong>${selectedFile.name}</strong></p>
-            <small>SIZE: ${fileSizeMB}MB :: TYPE: ${fileType.toUpperCase()}</small>
-            ${previewHTML}`;
+        let infoHTML = `<div class="upload-processing-card">
+            <div class="processing-header">
+                <p><strong>${selectedFile.name}</strong></p>
+                <small>SIZE: ${fileSizeMB}MB :: TYPE: ${fileType.toUpperCase()}</small>
+            </div>
+            ${previewHTML}
+        </div>`;
         
         document.getElementById('fileInfo').innerHTML = infoHTML;
         document.getElementById('fileInfo').style.display = 'block';
@@ -817,18 +1135,15 @@ async function handleFileSelect(e) {
             
             if (fileType === 'image') {
                 progressBar.style.width = '30%';
-                infoHTML += '<p style="color: #ffff00;">[OPTIMIZING_IMAGE...]</p>';
-                document.getElementById('fileInfo').innerHTML = infoHTML;
+                updateProcessingText('[OPTIMIZING_IMAGE...]');
                 result = await compressImage(selectedFile);
             } else if (fileType === 'video') {
                 progressBar.style.width = '30%';
-                infoHTML += '<p style="color: #ffff00;">[COMPRESSING_VIDEO...]</p>';
-                document.getElementById('fileInfo').innerHTML = infoHTML;
+                updateProcessingText('[COMPRESSING_VIDEO...]');
                 result = await compressVideo(selectedFile);
             } else if (fileType === 'audio') {
                 progressBar.style.width = '30%';
-                infoHTML += '<p style="color: #ffff00;">[COMPRESSING_AUDIO...]</p>';
-                document.getElementById('fileInfo').innerHTML = infoHTML;
+                updateProcessingText('[COMPRESSING_AUDIO...]');
                 result = await compressAudio(selectedFile);
             } else {
                 result = {
@@ -840,6 +1155,7 @@ async function handleFileSelect(e) {
             }
 
             progressBar.style.width = '100%';
+            updateProcessingText('[COMPRESSION_COMPLETE]');
 
             if (result) {
                 if (result.compressedSize < result.originalSize) {
@@ -854,11 +1170,14 @@ async function handleFileSelect(e) {
                     };
                 }
 
-                infoHTML = `<p><strong>${selectedFile.name}</strong></p>
-                    <small>TYPE: ${fileType.toUpperCase()}</small>
-                    ${previewHTML}
+                infoHTML = `<div class="upload-processing-card completed">
+                    <div class="processing-header">
+                        <p><strong>${selectedFile.name}</strong></p>
+                        <small>TYPE: ${fileType.toUpperCase()}</small>
+                    </div>
+                    ${previewHTML.replace('processing-frame', 'processing-frame completed')}
                     <div class="compression-info">
-                        <p>[COMPRESSION_COMPLETE]</p>
+                        <p>[READY_FOR_UPLOAD]</p>
                         ${result.originalDimensions ? `<p>ORIGINAL_DIM: ${result.originalDimensions}</p>` : ''}
                         ${result.dimensions ? `<p>COMPRESSED_DIM: ${result.dimensions}</p>` : ''}
                         <p>ORIGINAL_SIZE: ${(result.originalSize / 1024 / 1024).toFixed(2)}MB</p>
@@ -869,11 +1188,12 @@ async function handleFileSelect(e) {
                             '<p style="color: #ffaa00;">⚠ FILE_ALREADY_OPTIMIZED</p>'
                         }
                         ${result.note ? `<p>${result.note}</p>` : ''}
-                    </div>`;
+                    </div>
+                </div>`;
             }
         } catch (error) {
             console.error('Processing error:', error);
-            infoHTML += '<p style="color: #ff0000;">[PROCESSING_FAILED - WILL_UPLOAD_ORIGINAL]</p>';
+            updateProcessingText('[PROCESSING_FAILED - WILL_UPLOAD_ORIGINAL]', true);
         }
 
         document.getElementById('fileInfo').innerHTML = infoHTML;
@@ -890,18 +1210,18 @@ async function handleFileSelect(e) {
     }
 }
 
-function detectFileType(file) {
-    const type = file.type;
-    const name = file.name.toLowerCase();
-    
-    if (type.startsWith('image/')) return 'image';
-    if (type.startsWith('video/')) return 'video';
-    if (type.startsWith('audio/') || name.match(/\.(mp3|wav|ogg|m4a|flac|aac)/)) return 'audio';
-    if (type.includes('pdf') || type.includes('document') || type.includes('text')) return 'document';
-    return 'other';
+// Function to update processing text
+function updateProcessingText(text, isError = false) {
+    const processingText = document.querySelector('.processing-text');
+    if (processingText) {
+        processingText.textContent = text;
+        if (isError) {
+            processingText.style.color = '#ff0000';
+        }
+    }
 }
 
-// Upload with Compression
+// Upload with Compression - Enhanced with cool processing frame
 async function handleUpload(e) {
     e.preventDefault();
     hideError('uploadError');
@@ -942,12 +1262,17 @@ async function handleUpload(e) {
 
     console.log('Uploading file:', fileName, 'Size:', fileToUpload.size, 'Type:', fileToUpload.type);
 
-    // Close the modal and show background progress
+    // Create upload processing card
+    const uploadCard = createUploadProcessingCard(selectedFile, fileName);
+    document.body.appendChild(uploadCard);
+
+    // Close the modal
     hideModal('uploadModal');
-    const progressBar = createUploadProgress(fileName);
-    progressBar.style.width = '0%';
 
     try {
+        // Update status to uploading
+        updateUploadStatus(uploadCard, '[UPLOADING_TO_SERVER...]', 30);
+
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('files')
             .upload(fileName, fileToUpload, {
@@ -961,7 +1286,7 @@ async function handleUpload(e) {
             throw uploadError;
         }
 
-        progressBar.style.width = '90%';
+        updateUploadStatus(uploadCard, '[CREATING_DATABASE_ENTRY...]', 80);
 
         const { data: urlData } = supabase.storage
             .from('files')
@@ -983,17 +1308,95 @@ async function handleUpload(e) {
 
         if (dbError) throw dbError;
 
-        progressBar.style.width = '100%';
+        updateUploadStatus(uploadCard, '[UPLOAD_COMPLETE]', 100);
+        
+        // Add success styling
+        uploadCard.classList.add('upload-success');
+        
         loadContent();
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            uploadCard.remove();
+        }, 3000);
+        
     } catch (err) {
         console.error('Upload error:', err);
-        alert('Upload failed: ' + err.message);
-    } finally {
-        // Remove progress after 3 seconds
+        updateUploadStatus(uploadCard, `[UPLOAD_FAILED: ${err.message}]`, 0, true);
+        
+        // Keep error visible for longer
         setTimeout(() => {
-            progressBar.parentNode.remove();
-        }, 3000);
+            uploadCard.remove();
+        }, 5000);
     }
+}
+
+// Create upload processing card
+function createUploadProcessingCard(file, fileName) {
+    const fileType = detectFileType(file);
+    const card = document.createElement('div');
+    card.className = 'upload-processing-frame';
+    card.innerHTML = `
+        <div class="upload-card-header">
+            <div class="upload-card-title">UPLOADING_FILE</div>
+            <div class="upload-card-filename">${fileName}</div>
+        </div>
+        <div class="upload-card-preview">
+            ${fileType === 'image' ? 
+                `<div class="upload-preview-image">
+                    <div class="file-type-badge">[IMG]</div>
+                </div>` :
+            fileType === 'video' ?
+                `<div class="upload-preview-video">
+                    <div class="file-type-badge">[VID]</div>
+                </div>` :
+            fileType === 'audio' ?
+                `<div class="upload-preview-audio">
+                    <div class="file-type-badge">[AUDIO]</div>
+                </div>` :
+                `<div class="upload-preview-file">
+                    <div class="file-type-badge">[FILE]</div>
+                </div>`
+            }
+        </div>
+        <div class="upload-card-status">
+            <div class="upload-status-text">[INITIALIZING_UPLOAD...]</div>
+            <div class="upload-progress-container">
+                <div class="upload-progress-bar"></div>
+            </div>
+            <div class="upload-percentage">0%</div>
+        </div>
+    `;
+    return card;
+}
+
+// Update upload status
+function updateUploadStatus(uploadCard, status, progress, isError = false) {
+    const statusText = uploadCard.querySelector('.upload-status-text');
+    const progressBar = uploadCard.querySelector('.upload-progress-bar');
+    const percentage = uploadCard.querySelector('.upload-percentage');
+    
+    if (statusText) statusText.textContent = status;
+    if (progressBar) progressBar.style.width = `${progress}%`;
+    if (percentage) percentage.textContent = `${Math.round(progress)}%`;
+    
+    if (isError) {
+        statusText.style.color = '#ff0000';
+        uploadCard.classList.add('upload-error');
+    } else if (progress === 100) {
+        statusText.style.color = '#00ff00';
+    }
+}
+
+function detectFileType(file) {
+    const type = file.type;
+    const name = file.name.toLowerCase();
+    
+    if (type.startsWith('image/')) return 'image';
+    if (type.startsWith('video/')) return 'video';
+    if (type.startsWith('audio/') || name.match(/\.(mp3|wav|ogg|m4a|flac|aac)/)) return 'audio';
+    if (type.includes('pdf') || type.includes('document') || type.includes('text')) return 'document';
+    return 'other';
 }
 
 // Load Content
