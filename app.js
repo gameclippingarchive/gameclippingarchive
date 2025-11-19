@@ -3,24 +3,12 @@ const SUPABASE_URL = 'https://tgnqbayejloephsdqxae.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnbnFiYXllamxvZXBoc2RxeGFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0MTMyMzUsImV4cCI6MjA3ODk4OTIzNX0.yICueAwjGZyFt5ycnhxOEx8MHgFhRBi9Zd4Drhj89IQ';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Enhanced Compression Settings
+// Image Compression Settings
 const COMPRESSION_CONFIG = {
-    image: {
-        maxWidth: 2560,
-        maxHeight: 2560,
-        quality: 0.82,
-        minQuality: 0.6
-    },
-    video: {
-        maxWidth: 1280,
-        maxHeight: 720,
-        bitrate: 1500000, // 1.5 Mbps
-        fps: 30
-    },
-    audio: {
-        bitrate: 96000, // 96 kbps
-        sampleRate: 44100
-    }
+    maxWidth: 2560,
+    maxHeight: 2560,
+    quality: 0.85,
+    minQuality: 0.6
 };
 
 // State
@@ -29,7 +17,6 @@ let allContent = [];
 let currentFilter = 'all';
 let selectedFile = null;
 let compressedFile = null;
-let isProcessing = false; // Add processing flag
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -102,26 +89,12 @@ function polishUI() {
             border: 1px solid rgba(0,255,0,0.5);
             background: rgba(0,255,0,0.05);
         }
-        .compression-progress {
-            width: 100%;
-            height: 4px;
-            background: rgba(0,255,0,0.2);
-            margin: 8px 0;
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .compression-progress-bar {
-            height: 100%;
-            background: #00ff00;
-            transition: width 0.3s ease;
-            box-shadow: 0 0 10px #00ff00;
-        }
     `;
     document.head.appendChild(style);
 }
 
-// Advanced Image Compression
-async function compressImage(file, config = COMPRESSION_CONFIG.image) {
+// Image Compression - WORKS PERFECTLY
+async function compressImage(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -136,7 +109,7 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
                 let height = img.height;
                 
                 // Scale down to max dimensions
-                const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
+                const ratio = Math.min(COMPRESSION_CONFIG.maxWidth / width, COMPRESSION_CONFIG.maxHeight / height, 1);
                 width = Math.floor(width * ratio);
                 height = Math.floor(height * ratio);
                 
@@ -206,7 +179,7 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
                         });
                     },
                     'image/jpeg',
-                    config.quality
+                    COMPRESSION_CONFIG.quality
                 );
             };
             
@@ -214,346 +187,6 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
         };
         
         reader.onerror = () => reject(new Error('File reading failed'));
-    });
-}
-
-// Browser-Native Video Compression using Canvas + MediaRecorder
-async function compressVideo(file, config = COMPRESSION_CONFIG.video, onProgress) {
-    console.log('[Starting browser-native video compression...]');
-    
-    return new Promise((resolve, reject) => {
-        const video = document.createElement('video');
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = 'auto';
-        
-        const videoUrl = URL.createObjectURL(file);
-        let mediaRecorder = null;
-        let isRecording = false;
-        
-        const cleanup = () => {
-            try {
-                if (mediaRecorder && isRecording) {
-                    mediaRecorder.stop();
-                }
-                URL.revokeObjectURL(videoUrl);
-                video.src = '';
-                video.load();
-            } catch (e) {
-                console.warn('[Cleanup warning]', e);
-            }
-        };
-        
-        const handleError = (msg, err) => {
-            console.error(`[${msg}]`, err);
-            cleanup();
-            resolve({
-                file: file,
-                originalSize: file.size,
-                compressedSize: file.size,
-                compressionRatio: 0,
-                error: true,
-                note: `Video compression failed: ${err?.message || msg}. Uploading original.`
-            });
-        };
-        
-        video.onloadedmetadata = () => {
-            try {
-                // Calculate dimensions
-                let width = video.videoWidth;
-                let height = video.videoHeight;
-                const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
-                width = Math.floor(width * ratio);
-                height = Math.floor(height * ratio);
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                console.log(`[Video: ${width}x${height}, ${video.duration.toFixed(1)}s]`);
-                
-                // Check MIME type support
-                let mimeType = 'video/webm;codecs=vp8';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'video/webm';
-                }
-                
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    handleError('MediaRecorder not supported', new Error('No supported video codec'));
-                    return;
-                }
-                
-                console.log(`[Using: ${mimeType}]`);
-                
-                // Setup canvas stream
-                const stream = canvas.captureStream(config.fps);
-                
-                try {
-                    mediaRecorder = new MediaRecorder(stream, {
-                        mimeType: mimeType,
-                        videoBitsPerSecond: config.bitrate
-                    });
-                } catch (e) {
-                    handleError('MediaRecorder creation failed', e);
-                    return;
-                }
-                
-                const chunks = [];
-                let frameCount = 0;
-                let animationFrame = null;
-                
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data && e.data.size > 0) {
-                        chunks.push(e.data);
-                    }
-                };
-                
-                mediaRecorder.onstop = () => {
-                    isRecording = false;
-                    if (animationFrame) {
-                        cancelAnimationFrame(animationFrame);
-                    }
-                    
-                    const blob = new Blob(chunks, { type: 'video/webm' });
-                    const compressedFile = new File(
-                        [blob],
-                        file.name.replace(/\.[^.]+$/, '_compressed.webm'),
-                        { type: 'video/webm', lastModified: Date.now() }
-                    );
-                    
-                    console.log(`[✓ Compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB, ${frameCount} frames]`);
-                    
-                    cleanup();
-                    
-                    resolve({
-                        file: compressedFile,
-                        originalSize: file.size,
-                        compressedSize: blob.size,
-                        compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1),
-                        dimensions: `${width}x${height}`,
-                        originalDimensions: `${video.videoWidth}x${video.videoHeight}`
-                    });
-                };
-                
-                mediaRecorder.onerror = (e) => {
-                    handleError('MediaRecorder error', e.error);
-                };
-                
-                // Frame drawing logic
-                const drawFrame = () => {
-                    if (video.paused || video.ended) {
-                        return;
-                    }
-                    
-                    try {
-                        ctx.drawImage(video, 0, 0, width, height);
-                        frameCount++;
-                        
-                        if (onProgress && video.duration > 0) {
-                            const progress = Math.min((video.currentTime / video.duration) * 100, 99);
-                            onProgress(progress);
-                        }
-                    } catch (e) {
-                        console.warn('[Frame draw error]', e);
-                    }
-                    
-                    animationFrame = requestAnimationFrame(drawFrame);
-                };
-                
-                video.onended = () => {
-                    console.log('[Video playback ended]');
-                    if (animationFrame) {
-                        cancelAnimationFrame(animationFrame);
-                    }
-                    setTimeout(() => {
-                        if (mediaRecorder && isRecording) {
-                            mediaRecorder.stop();
-                        }
-                    }, 500);
-                };
-                
-                video.onerror = (e) => {
-                    handleError('Video playback error', e);
-                };
-                
-                // Start everything
-                try {
-                    mediaRecorder.start(100);
-                    isRecording = true;
-                    
-                    video.play().then(() => {
-                        console.log('[Playback & recording started]');
-                        animationFrame = requestAnimationFrame(drawFrame);
-                    }).catch(err => {
-                        handleError('Play failed', err);
-                    });
-                    
-                } catch (e) {
-                    handleError('Start failed', e);
-                }
-                
-            } catch (err) {
-                handleError('Setup error', err);
-            }
-        };
-        
-        video.onerror = (e) => {
-            handleError('Video load error', e);
-        };
-        
-        // Load video - do this LAST
-        video.src = videoUrl;
-        
-    });
-}
-
-// Browser-Native Audio Compression using MediaRecorder
-async function compressAudio(file, config = COMPRESSION_CONFIG.audio) {
-    console.log('[Starting browser-native audio compression...]');
-    
-    return new Promise((resolve, reject) => {
-        const audio = document.createElement('audio');
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        
-        const audioUrl = URL.createObjectURL(file);
-        let mediaRecorder = null;
-        let isRecording = false;
-        
-        const cleanup = () => {
-            try {
-                if (mediaRecorder && isRecording) {
-                    mediaRecorder.stop();
-                }
-                audioContext.close();
-                URL.revokeObjectURL(audioUrl);
-                audio.src = '';
-            } catch (e) {
-                console.warn('[Cleanup warning]', e);
-            }
-        };
-        
-        const handleError = (msg, err) => {
-            console.error(`[${msg}]`, err);
-            cleanup();
-            resolve({
-                file: file,
-                originalSize: file.size,
-                compressedSize: file.size,
-                compressionRatio: 0,
-                error: true,
-                note: `Audio compression failed: ${err?.message || msg}. Uploading original.`
-            });
-        };
-        
-        audio.onloadedmetadata = () => {
-            try {
-                console.log(`[Audio duration: ${audio.duration.toFixed(1)}s]`);
-                
-                // Check MIME type support
-                let mimeType = 'audio/webm;codecs=opus';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/webm';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/ogg;codecs=opus';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    handleError('MediaRecorder not supported', new Error('No supported audio codec'));
-                    return;
-                }
-                
-                console.log(`[Using: ${mimeType}]`);
-                
-                const source = audioContext.createMediaElementSource(audio);
-                const dest = audioContext.createMediaStreamDestination();
-                source.connect(dest);
-                
-                try {
-                    mediaRecorder = new MediaRecorder(dest.stream, {
-                        mimeType: mimeType,
-                        audioBitsPerSecond: config.bitrate
-                    });
-                } catch (e) {
-                    handleError('MediaRecorder creation failed', e);
-                    return;
-                }
-                
-                const chunks = [];
-                
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data && e.data.size > 0) {
-                        chunks.push(e.data);
-                    }
-                };
-                
-                mediaRecorder.onstop = () => {
-                    isRecording = false;
-                    const blob = new Blob(chunks, { type: mimeType });
-                    const ext = mimeType.includes('ogg') ? '.ogg' : '.webm';
-                    const compressedFile = new File(
-                        [blob],
-                        file.name.replace(/\.[^.]+$/, '_compressed' + ext),
-                        { type: mimeType, lastModified: Date.now() }
-                    );
-                    
-                    console.log(`[✓ Compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(blob.size/1024/1024).toFixed(2)}MB]`);
-                    
-                    cleanup();
-                    
-                    resolve({
-                        file: compressedFile,
-                        originalSize: file.size,
-                        compressedSize: blob.size,
-                        compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1)
-                    });
-                };
-                
-                mediaRecorder.onerror = (e) => {
-                    handleError('MediaRecorder error', e.error);
-                };
-                
-                audio.onended = () => {
-                    console.log('[Audio playback ended]');
-                    setTimeout(() => {
-                        if (mediaRecorder && isRecording) {
-                            mediaRecorder.stop();
-                        }
-                    }, 500);
-                };
-                
-                audio.onerror = (e) => {
-                    handleError('Audio playback error', e);
-                };
-                
-                // Start everything
-                try {
-                    mediaRecorder.start(100);
-                    isRecording = true;
-                    
-                    audio.play().then(() => {
-                        console.log('[Playback & recording started]');
-                    }).catch(err => {
-                        handleError('Play failed', err);
-                    });
-                    
-                } catch (e) {
-                    handleError('Start failed', e);
-                }
-                
-            } catch (err) {
-                handleError('Setup error', err);
-            }
-        };
-        
-        audio.onerror = (e) => {
-            handleError('Audio load error', e);
-        };
-        
-        // Load audio - do this LAST
-        audio.src = audioUrl;
-        
     });
 }
 
@@ -654,7 +287,6 @@ function hideModal(modalId) {
         document.getElementById('uploadProgress').style.display = 'none';
         selectedFile = null;
         compressedFile = null;
-        isProcessing = false; // Reset processing flag
         document.querySelector('.file-label').classList.remove('has-file');
         document.getElementById('fileInput').value = '';
     } else if (modalId === 'viewModal') {
@@ -795,14 +427,8 @@ function logout() {
     loadContent();
 }
 
-// Enhanced File Selection with Smart Compression
+// File Selection - Images Only Compressed
 async function handleFileSelect(e) {
-    // Prevent multiple simultaneous processing
-    if (isProcessing) {
-        console.log('[Already processing a file, ignoring duplicate event]');
-        return;
-    }
-    
     selectedFile = e.target.files[0];
     compressedFile = null;
     
@@ -810,101 +436,57 @@ async function handleFileSelect(e) {
         return;
     }
     
-    isProcessing = true;
+    const fileLabel = document.querySelector('.file-label');
+    fileLabel.classList.add('has-file');
+    document.getElementById('fileLabel').textContent = '[FILE_LOADED]';
+ 
+    const fileType = detectFileType(selectedFile);
+    let infoHTML = `
+        <p><strong>${selectedFile.name}</strong></p>
+        <small>SIZE: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>
+    `;
     
-    try {
-        const fileLabel = document.querySelector('.file-label');
-        fileLabel.classList.add('has-file');
-        document.getElementById('fileLabel').textContent = '[FILE_LOADED]';
-     
-        const fileType = detectFileType(selectedFile);
-        let infoHTML = `
-            <p><strong>${selectedFile.name}</strong></p>
-            <small>SIZE: ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB :: TYPE: ${fileType.toUpperCase()}</small>
-            <div class="compression-progress">
-                <div class="compression-progress-bar" id="compressionProgress" style="width: 0%"></div>
-            </div>
-        `;
-        
-        document.getElementById('fileInfo').innerHTML = infoHTML;
-        document.getElementById('fileInfo').style.display = 'block';
-        
-        // Smart compression based on file type
-        let result;
-        const progressBar = document.getElementById('compressionProgress');
-        
-        if (fileType === 'image') {
-            progressBar.style.width = '30%';
+    document.getElementById('fileInfo').innerHTML = infoHTML;
+    document.getElementById('fileInfo').style.display = 'block';
+    
+    // Only compress images - videos/audio upload as-is
+    if (fileType === 'image') {
+        try {
             infoHTML += '<p style="color: #ffff00;">[OPTIMIZING_IMAGE...]</p>';
             document.getElementById('fileInfo').innerHTML = infoHTML;
             
-            result = await compressImage(selectedFile);
+            const result = await compressImage(selectedFile);
             compressedFile = result.file;
-            progressBar.style.width = '100%';
             
-        } else if (fileType === 'video') {
-            infoHTML += '<p style="color: #ffff00;">[PROCESSING_VIDEO...] This may take a while...</p>';
-            document.getElementById('fileInfo').innerHTML = infoHTML;
-            
-            result = await compressVideo(selectedFile, COMPRESSION_CONFIG.video, (progress) => {
-                progressBar.style.width = progress + '%';
-            });
-            
-            if (result && !result.error) {
-                compressedFile = result.file;
-            }
-            progressBar.style.width = '100%';
-            
-        } else if (fileType === 'audio') {
-            infoHTML += '<p style="color: #ffff00;">[PROCESSING_AUDIO...] This may take a while...</p>';
-            document.getElementById('fileInfo').innerHTML = infoHTML;
-            progressBar.style.width = '50%';
-            
-            result = await compressAudio(selectedFile);
-            
-            if (result && !result.error) {
-                compressedFile = result.file;
-            }
-            progressBar.style.width = '100%';
-        }
-        
-        if (result) {
             infoHTML = `
                 <p><strong>${selectedFile.name}</strong></p>
-                <small>TYPE: ${fileType.toUpperCase()}</small>
+                <small>TYPE: IMAGE</small>
                 <div class="compression-info">
                     <p>[COMPRESSION_COMPLETE]</p>
-                    ${result.originalDimensions ? `<p>ORIGINAL_DIM: ${result.originalDimensions}</p>` : ''}
-                    ${result.dimensions ? `<p>COMPRESSED_DIM: ${result.dimensions}</p>` : ''}
+                    <p>ORIGINAL_DIM: ${result.originalDimensions}</p>
+                    <p>COMPRESSED_DIM: ${result.dimensions}</p>
                     <p>ORIGINAL_SIZE: ${(result.originalSize / 1024 / 1024).toFixed(2)}MB</p>
                     <p>COMPRESSED_SIZE: ${(result.compressedSize / 1024 / 1024).toFixed(2)}MB</p>
                     <p style="color: #00ffff;">SPACE_SAVED: ${result.compressionRatio}%</p>
-                    ${result.error ? 
-                        `<p style="color: #ffaa00;">⚠ ${result.note}</p>` :
-                        result.compressedSize < result.originalSize ? 
-                            `<p style="color: #00ff00;">✓ COMPRESSION_SUCCESSFUL</p>` : 
-                            `<p style="color: #ffaa00;">⚠ FILE_ALREADY_OPTIMIZED</p>`}
+                    ${result.compressedSize < result.originalSize ? 
+                        `<p style="color: #00ff00;">✓ COMPRESSION_SUCCESSFUL</p>` : 
+                        `<p style="color: #ffaa00;">⚠ FILE_ALREADY_OPTIMIZED</p>`}
                 </div>
             `;
+        } catch (error) {
+            console.error('Image compression error:', error);
+            infoHTML += '<p style="color: #ff0000;">[COMPRESSION_FAILED - WILL_UPLOAD_ORIGINAL]</p>';
         }
-        
-        document.getElementById('fileInfo').innerHTML = infoHTML;
-     
-        // Auto-fill title
-        if (!document.getElementById('uploadTitle').value) {
-            document.getElementById('uploadTitle').value = selectedFile.name.replace(/\.[^/.]+$/, '');
-        }
-        
-    } catch (error) {
-        console.error('Processing error:', error);
-        let infoHTML = `
-            <p><strong>${selectedFile.name}</strong></p>
-            <p style="color: #ff0000;">[PROCESSING_FAILED - WILL_UPLOAD_ORIGINAL]</p>
-            <p style="color: #ffaa00; font-size: 0.85em;">${error.message}</p>
-        `;
-        document.getElementById('fileInfo').innerHTML = infoHTML;
-    } finally {
-        isProcessing = false;
+    } else {
+        infoHTML += `<p style="color: #00ffff;">[VIDEO/AUDIO_FILES_UPLOAD_AS-IS]</p>`;
+        infoHTML += `<p style="color: #888; font-size: 0.8em;">Note: Browser-native video/audio compression is not reliable. Files upload in original quality.</p>`;
+    }
+    
+    document.getElementById('fileInfo').innerHTML = infoHTML;
+ 
+    // Auto-fill title
+    if (!document.getElementById('uploadTitle').value) {
+        document.getElementById('uploadTitle').value = selectedFile.name.replace(/\.[^/.]+$/, '');
     }
 }
 
@@ -919,7 +501,7 @@ function detectFileType(file) {
     return 'other';
 }
 
-// Upload with Compression
+// Upload
 async function handleUpload(e) {
     e.preventDefault();
     hideError('uploadError');
@@ -951,34 +533,27 @@ async function handleUpload(e) {
     });
  
     try {
-        // Use compressed/optimized file if available
+        // Use compressed file for images, original for everything else
         const fileToUpload = compressedFile || selectedFile;
         
-        // Generate safe filename with proper extension
+        // Generate safe filename
         const timestamp = Date.now();
         const randomStr = Math.random().toString(36).substr(2, 9);
         const originalExt = selectedFile.name.split('.').pop().toLowerCase();
         
-        // Determine final extension based on compression
+        // Determine final extension
         let finalExt = originalExt;
         const fileType = detectFileType(selectedFile);
         
-        if (compressedFile) {
-            if (fileType === 'image') {
-                finalExt = 'jpg';
-            } else if (fileType === 'video') {
-                finalExt = 'webm';
-            } else if (fileType === 'audio') {
-                const audioType = compressedFile.type;
-                finalExt = audioType.includes('ogg') ? 'ogg' : 'webm';
-            }
+        if (compressedFile && fileType === 'image') {
+            finalExt = 'jpg';
         }
         
         const fileName = `${timestamp}-${randomStr}.${finalExt}`;
         
-        console.log('Uploading file:', fileName, 'Size:', fileToUpload.size, 'Type:', fileToUpload.type);
+        console.log('Uploading:', fileName, 'Size:', fileToUpload.size, 'Type:', fileToUpload.type);
         
-        // Upload file with correct content type
+        // Upload file
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('files')
             .upload(fileName, fileToUpload, {
@@ -988,7 +563,7 @@ async function handleUpload(e) {
             });
         
         if (uploadError) {
-            console.error('Upload error details:', uploadError);
+            console.error('Upload error:', uploadError);
             throw uploadError;
         }
         
