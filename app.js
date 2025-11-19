@@ -11,16 +11,6 @@ const COMPRESSION_CONFIG = {
     quality: 0.82,
     targetSizeMB: Infinity, // No size limit
     minQuality: 0.6 // Minimum quality threshold
-  },
-  video: {
-    maxWidth: 1920,
-    maxHeight: 1080,
-    targetBitrate: 2500000,
-    targetSizeMB: Infinity
-  },
-  audio: {
-    targetBitrate: 128000,
-    targetSizeMB: Infinity
   }
 };
 
@@ -30,33 +20,6 @@ let allContent = [];
 let currentFilter = 'all';
 let selectedFile = null;
 let compressedFile = null;
-let ffmpegInstance = null;
-let ffmpegLoading = false;
-
-// New function to load FFmpeg instance (fixes the ReferenceError)
-async function getFFmpegInstance() {
-  if (ffmpegInstance) return ffmpegInstance;
-  if (ffmpegLoading) {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    return getFFmpegInstance();
-  }
-  ffmpegLoading = true;
-  try {
-    const { FFmpeg } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
-    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-    ffmpegInstance = new FFmpeg();
-    await ffmpegInstance.load({
-      coreURL: `${baseURL}/ffmpeg-core.js`,
-      wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-      workerURL: `${baseURL}/ffmpeg-core.worker.js`
-    });
-    ffmpegLoading = false;
-    return ffmpegInstance;
-  } catch (error) {
-    ffmpegLoading = false;
-    throw error;
-  }
-}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -231,132 +194,6 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
       img.onerror = () => reject(new Error('Image loading failed'));
     };
     reader.onerror = () => reject(new Error('File reading failed'));
-  });
-}
-
-// Video Compression using FFmpeg.wasm
-async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
-  try {
-    console.log('[Starting video compression...]');
-    // Get FFmpeg instance
-    const ffmpeg = await getFFmpegInstance();
-    const inputExt = file.name.substring(file.name.lastIndexOf('.')) || '.mp4';
-    const inputName = 'input' + inputExt;
-    const outputName = 'output.mp4';
-    console.log('[Writing input file to FFmpeg...]');
-    await ffmpeg.writeFile(inputName, await fetchFile(file));
-    console.log('[Starting FFmpeg video compression...]');
-    // Compress video
-    await ffmpeg.exec([
-      '-i', inputName,
-      '-c:v', 'libx264',
-      '-crf', '28',
-      '-preset', 'medium',
-      '-vf', `scale='min(${config.maxWidth},iw)':'min(${config.maxHeight},ih)':force_original_aspect_ratio=decrease`,
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-movflags', '+faststart',
-      '-y', outputName
-    ]);
-    console.log('[Reading compressed video...]');
-    const data = await ffmpeg.readFile(outputName);
-    const compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
-    const compressedFile = new File(
-      [compressedBlob],
-      file.name.replace(/\.[^.]+$/, '_compressed.mp4'),
-      { type: 'video/mp4', lastModified: Date.now() }
-    );
-    console.log(`[✓ Video compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(compressedBlob.size/1024/1024).toFixed(2)}MB]`);
-    // Clean up
-    try {
-      await ffmpeg.unlink(inputName);
-      await ffmpeg.unlink(outputName);
-    } catch (e) {
-      console.warn('[Cleanup warning:]', e);
-    }
-    return {
-      file: compressedFile,
-      originalSize: file.size,
-      compressedSize: compressedBlob.size,
-      compressionRatio: ((1 - compressedBlob.size / file.size) * 100).toFixed(1)
-    };
-  } catch (error) {
-    console.error('[✗ Video compression error:]', error);
-    return {
-      file: file,
-      originalSize: file.size,
-      compressedSize: file.size,
-      compressionRatio: 0,
-      error: true,
-      note: `Video compression failed: ${error.message}. Uploading original.`
-    };
-  }
-}
-
-// Audio Compression using FFmpeg.wasm
-async function compressAudio(file, config = COMPRESSION_CONFIG.audio) {
-  try {
-    console.log('[Starting audio compression...]');
-    // Get FFmpeg instance
-    const ffmpeg = await getFFmpegInstance();
-    const inputExt = file.name.substring(file.name.lastIndexOf('.')) || '.mp3';
-    const inputName = 'input' + inputExt;
-    const outputName = 'output.mp3';
-    console.log('[Writing input file to FFmpeg...]');
-    await ffmpeg.writeFile(inputName, await fetchFile(file));
-    console.log('[Starting FFmpeg audio compression...]');
-    // Compress audio to MP3 128kbps
-    await ffmpeg.exec([
-      '-i', inputName,
-      '-c:a', 'libmp3lame',
-      '-b:a', '128k',
-      '-ar', '44100',
-      '-y', outputName
-    ]);
-    console.log('[Reading compressed audio...]');
-    const data = await ffmpeg.readFile(outputName);
-    const compressedBlob = new Blob([data.buffer], { type: 'audio/mpeg' });
-    const compressedFile = new File(
-      [compressedBlob],
-      file.name.replace(/\.[^.]+$/, '_compressed.mp3'),
-      { type: 'audio/mpeg', lastModified: Date.now() }
-    );
-    console.log(`[✓ Audio compressed: ${(file.size/1024/1024).toFixed(2)}MB → ${(compressedBlob.size/1024/1024).toFixed(2)}MB]`);
-    // Clean up
-    try {
-      await ffmpeg.unlink(inputName);
-      await ffmpeg.unlink(outputName);
-    } catch (e) {
-      console.warn('[Cleanup warning:]', e);
-    }
-    return {
-      file: compressedFile,
-      originalSize: file.size,
-      compressedSize: compressedBlob.size,
-      compressionRatio: ((1 - compressedBlob.size / file.size) * 100).toFixed(1)
-    };
-  } catch (error) {
-    console.error('[✗ Audio compression error:]', error);
-    return {
-      file: file,
-      originalSize: file.size,
-      compressedSize: file.size,
-      compressionRatio: 0,
-      error: true,
-      note: `Audio compression failed: ${error.message}. Uploading original.`
-    };
-  }
-}
-
-// Helper function to fetch file as Uint8Array
-async function fetchFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve(new Uint8Array(reader.result));
-    };
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
   });
 }
 
@@ -591,15 +428,14 @@ async function handleFileSelect(e) {
         result = await compressImage(selectedFile);
         compressedFile = result.file;
         progressBar.style.width = '100%';
-      } else if (fileType === 'video') {
-        progressBar.style.width = '50%';
-        infoHTML += '<p style="color: #ffff00;">[ANALYZING_VIDEO...]</p>';
-        document.getElementById('fileInfo').innerHTML = infoHTML;
-        result = await compressVideo(selectedFile);
-        progressBar.style.width = '100%';
-      } else if (fileType === 'audio') {
-        progressBar.style.width = '50%';
-        result = await compressAudio(selectedFile);
+      } else {
+        // For video and audio, no compression
+        result = {
+          file: selectedFile,
+          originalSize: selectedFile.size,
+          compressedSize: selectedFile.size,
+          compressionRatio: 0
+        };
         progressBar.style.width = '100%';
       }
       if (result) {
@@ -607,13 +443,13 @@ async function handleFileSelect(e) {
           <p><strong>${selectedFile.name}</strong></p>
           <small>TYPE: ${fileType.toUpperCase()}</small>
           <div class="compression-info">
-            <p>[COMPRESSION_COMPLETE]</p>
+            <p>[PROCESSING_COMPLETE]</p>
             ${result.originalDimensions ? `<p>ORIGINAL_DIM: ${result.originalDimensions}</p>` : ''}
             ${result.dimensions ? `<p>COMPRESSED_DIM: ${result.dimensions}</p>` : ''}
             <p>ORIGINAL_SIZE: ${(result.originalSize / 1024 / 1024).toFixed(2)}MB</p>
             <p>COMPRESSED_SIZE: ${(result.compressedSize / 1024 / 1024).toFixed(2)}MB</p>
             <p style="color: #00ffff;">SPACE_SAVED: ${result.compressionRatio}%</p>
-            ${result.compressedSize < result.originalSize ? `<p style="color: #00ff00;">✓ COMPRESSION_SUCCESSFUL</p>` : `<p style="color: #ffaa00;">⚠ FILE_ALREADY_OPTIMIZED</p>`}
+            ${result.compressedSize < result.originalSize ? `<p style="color: #00ff00;">✓ COMPRESSION_SUCCESSFUL</p>` : `<p style="color: #ffaa00;">⚠ NO_COMPRESSION_APPLIED</p>`}
           </div>
         `;
       }
@@ -677,10 +513,6 @@ async function handleUpload(e) {
     if (compressedFile) {
       if (fileType === 'image') {
         finalExt = 'jpg';
-      } else if (fileType === 'video') {
-        finalExt = 'mp4';
-      } else if (fileType === 'audio') {
-        finalExt = 'mp3';
       }
     }
     const fileName = `${timestamp}-${randomStr}.${finalExt}`;
