@@ -43,11 +43,13 @@ async function getFFmpegInstance() {
   ffmpegLoading = true;
   try {
     const { createFFmpeg } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
-    const { toBlobURL } = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js');
     const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-    const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
-    const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-    ffmpegInstance = createFFmpeg({ log: true, coreURL, wasmURL });
+    ffmpegInstance = createFFmpeg({
+      log: true,
+      corePath: `${baseURL}/ffmpeg-core.js`,
+      wasmPath: `${baseURL}/ffmpeg-core.wasm`,
+      workerPath: `${baseURL}/ffmpeg-core.worker.js`
+    });
     await ffmpegInstance.load();
     ffmpegLoading = false;
     return ffmpegInstance;
