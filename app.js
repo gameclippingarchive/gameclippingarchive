@@ -30,6 +30,8 @@ let allContent = [];
 let currentFilter = 'all';
 let selectedFile = null;
 let compressedFile = null;
+let ffmpegInstance = null;
+let ffmpegLoading = false;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
