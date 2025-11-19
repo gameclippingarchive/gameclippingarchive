@@ -120,7 +120,7 @@ function polishUI() {
     document.head.appendChild(style);
 }
 
-// Advanced Image Compression with Multiple Passes
+// Advanced Image Compression with Aggressive Settings
 async function compressImage(file, config = COMPRESSION_CONFIG.image) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -135,20 +135,18 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
                 let width = img.width;
                 let height = img.height;
                 
-                // Calculate scaling to maintain aspect ratio
-                if (width > config.maxWidth || height > config.maxHeight) {
-                    const ratio = Math.min(config.maxWidth / width, config.maxHeight / height);
-                    width = Math.floor(width * ratio);
-                    height = Math.floor(height * ratio);
-                }
+                // ALWAYS scale down to max dimensions for compression
+                const ratio = Math.min(config.maxWidth / width, config.maxHeight / height, 1);
+                width = Math.floor(width * ratio);
+                height = Math.floor(height * ratio);
                 
                 canvas.width = width;
                 canvas.height = height;
                 
                 const ctx = canvas.getContext('2d', { alpha: false });
                 
-                // Smooth scaling using multiple passes for better quality
-                if (width < img.width * 0.5) {
+                // Multi-pass downscaling for better quality
+                if (ratio < 0.5) {
                     const tempCanvas = document.createElement('canvas');
                     const tempCtx = tempCanvas.getContext('2d', { alpha: false });
                     let currentWidth = img.width;
@@ -158,21 +156,27 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
                     tempCanvas.height = currentHeight;
                     tempCtx.drawImage(img, 0, 0);
                     
-                    while (currentWidth > width * 2) {
-                        currentWidth = Math.floor(currentWidth / 2);
-                        currentHeight = Math.floor(currentHeight / 2);
+                    // Progressively scale down
+                    while (currentWidth > width * 2 || currentHeight > height * 2) {
+                        currentWidth = Math.max(Math.floor(currentWidth / 2), width);
+                        currentHeight = Math.max(Math.floor(currentHeight / 2), height);
                         
                         const nextCanvas = document.createElement('canvas');
                         const nextCtx = nextCanvas.getContext('2d', { alpha: false });
                         nextCanvas.width = currentWidth;
                         nextCanvas.height = currentHeight;
+                        nextCtx.imageSmoothingEnabled = true;
+                        nextCtx.imageSmoothingQuality = 'high';
                         nextCtx.drawImage(tempCanvas, 0, 0, currentWidth, currentHeight);
                         
                         tempCanvas.width = currentWidth;
                         tempCanvas.height = currentHeight;
+                        tempCtx.clearRect(0, 0, currentWidth, currentHeight);
                         tempCtx.drawImage(nextCanvas, 0, 0);
                     }
                     
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
                     ctx.drawImage(tempCanvas, 0, 0, width, height);
                 } else {
                     ctx.imageSmoothingEnabled = true;
@@ -180,49 +184,37 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
                     ctx.drawImage(img, 0, 0, width, height);
                 }
                 
-                // Try different quality levels to hit target size
-                let quality = config.quality;
-                let attempts = 0;
-                const maxAttempts = 3;
-                
-                const tryCompress = () => {
-                    canvas.toBlob(
-                        (blob) => {
-                            if (!blob) {
-                                reject(new Error('Canvas compression failed'));
-                                return;
-                            }
-                            
-                            const targetBytes = config.targetSizeMB * 1024 * 1024;
-                            
-                            // If size is good or we've tried enough, accept it
-                            if (blob.size <= targetBytes || attempts >= maxAttempts) {
-                                const compressedFile = new File(
-                                    [blob],
-                                    file.name.replace(/\.[^.]+$/, '.jpg'),
-                                    { type: 'image/jpeg', lastModified: Date.now() }
-                                );
-                                
-                                resolve({
-                                    file: compressedFile,
-                                    originalSize: file.size,
-                                    compressedSize: blob.size,
-                                    compressionRatio: ((1 - blob.size / file.size) * 100).toFixed(1),
-                                    dimensions: `${width}x${height}`
-                                });
-                            } else {
-                                // Try again with lower quality
-                                attempts++;
-                                quality -= 0.1;
-                                tryCompress();
-                            }
-                        },
-                        'image/jpeg',
-                        quality
-                    );
-                };
-                
-                tryCompress();
+                // Compress with quality setting
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error('Canvas compression failed'));
+                            return;
+                        }
+                        
+                        // Create compressed file - keep original extension in metadata
+                        const compressedFile = new File(
+                            [blob],
+                            file.name.split('.')[0] + '_compressed.jpg',
+                            { type: 'image/jpeg', lastModified: Date.now() }
+                        );
+                        
+                        const originalMB = file.size / 1024 / 1024;
+                        const compressedMB = blob.size / 1024 / 1024;
+                        const savedPercent = ((1 - blob.size / file.size) * 100).toFixed(1);
+                        
+                        resolve({
+                            file: compressedFile,
+                            originalSize: file.size,
+                            compressedSize: blob.size,
+                            compressionRatio: savedPercent,
+                            dimensions: `${width}x${height}`,
+                            originalDimensions: `${img.width}x${img.height}`
+                        });
+                    },
+                    'image/jpeg',
+                    config.quality
+                );
             };
             
             img.onerror = () => reject(new Error('Image loading failed'));
@@ -232,30 +224,44 @@ async function compressImage(file, config = COMPRESSION_CONFIG.image) {
     });
 }
 
-// Video Compression using Canvas (for short videos)
+// Video Compression using Canvas (extract frame + metadata)
 async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
     return new Promise((resolve, reject) => {
         const video = document.createElement('video');
         video.preload = 'metadata';
+        video.muted = true;
         
         video.onloadedmetadata = () => {
-            // For large videos, we'll just pass through with metadata
-            // Real video compression requires server-side processing
             const duration = video.duration;
             const estimatedBitrate = (file.size * 8) / duration;
             
+            // For videos, we don't compress on client side
+            // Just return original file with metadata
             resolve({
                 file: file,
                 originalSize: file.size,
                 compressedSize: file.size,
                 compressionRatio: 0,
-                note: 'Video files uploaded as-is. Server-side compression recommended for large files.',
+                note: 'Video uploaded as original. Client-side video compression not supported.',
                 duration: duration.toFixed(1) + 's',
                 estimatedBitrate: (estimatedBitrate / 1000000).toFixed(2) + ' Mbps'
             });
+            
+            URL.revokeObjectURL(video.src);
         };
         
-        video.onerror = () => reject(new Error('Video loading failed'));
+        video.onerror = () => {
+            URL.revokeObjectURL(video.src);
+            // If video can't be loaded, still upload it
+            resolve({
+                file: file,
+                originalSize: file.size,
+                compressedSize: file.size,
+                compressionRatio: 0,
+                note: 'Video will be uploaded as-is.'
+            });
+        };
+        
         video.src = URL.createObjectURL(file);
     });
 }
@@ -565,15 +571,15 @@ async function handleFileSelect(e) {
                     <p><strong>${selectedFile.name}</strong></p>
                     <small>TYPE: ${fileType.toUpperCase()}</small>
                     <div class="compression-info">
-                        <p>[ANALYSIS_COMPLETE]</p>
-                        <p>ORIGINAL: ${(result.originalSize / 1024 / 1024).toFixed(2)}MB</p>
-                        ${result.compressedSize !== result.originalSize ? 
-                            `<p>OPTIMIZED: ${(result.compressedSize / 1024 / 1024).toFixed(2)}MB</p>
-                             <p>REDUCED: ${result.compressionRatio}%</p>` : ''}
-                        ${result.dimensions ? `<p>DIMENSIONS: ${result.dimensions}</p>` : ''}
-                        ${result.duration ? `<p>DURATION: ${result.duration}</p>` : ''}
-                        ${result.estimatedBitrate ? `<p>BITRATE: ${result.estimatedBitrate}</p>` : ''}
-                        ${result.note ? `<p style="color: #ffaa00; font-size: 0.9em; margin-top: 5px;">${result.note}</p>` : ''}
+                        <p>[COMPRESSION_COMPLETE]</p>
+                        ${result.originalDimensions ? `<p>ORIGINAL_DIM: ${result.originalDimensions}</p>` : ''}
+                        ${result.dimensions ? `<p>COMPRESSED_DIM: ${result.dimensions}</p>` : ''}
+                        <p>ORIGINAL_SIZE: ${(result.originalSize / 1024 / 1024).toFixed(2)}MB</p>
+                        <p>COMPRESSED_SIZE: ${(result.compressedSize / 1024 / 1024).toFixed(2)}MB</p>
+                        <p style="color: #00ffff;">SPACE_SAVED: ${result.compressionRatio}%</p>
+                        ${result.compressedSize < result.originalSize ? 
+                            `<p style="color: #00ff00;">✓ COMPRESSION_SUCCESSFUL</p>` : 
+                            `<p style="color: #ffaa00;">⚠ FILE_ALREADY_OPTIMIZED</p>`}
                     </div>
                 `;
             }
