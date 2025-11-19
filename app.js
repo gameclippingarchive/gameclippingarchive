@@ -269,7 +269,7 @@ async function compressVideo(file, config = COMPRESSION_CONFIG.video) {
     const options = {
       mimeType,
       videoBitsPerSecond: config.targetBitrate,
-      audioBitsPerSecond: 128000 // Higher for better quality
+      audioBitsPerSecond: 192000 // Even higher for better audio quality
     };
     const mediaRecorder = new MediaRecorder(combinedStream, options);
     const chunks = [];
